@@ -8,9 +8,10 @@ from pathlib import Path
 
 from mchanhua.capture import create_grabber, grab_screen
 from mchanhua.config import Config
+from mchanhua.diagnostics import UiWatchdog, make_dump_all_threads
 from mchanhua.geometry import Region, enable_dpi_awareness, follow_cursor_region
 from mchanhua.hotkey import HotkeyManager
-from mchanhua.logging_setup import get_logger
+from mchanhua.logging_setup import fault_stream, get_logger
 from mchanhua.ocr import create_engine
 from mchanhua.pipeline import run_pipeline
 from mchanhua.translate import TranslationError, create_translator
@@ -27,6 +28,7 @@ class Application:
         grabber=None,
         ocr=None,
         window=None,
+        diagnose: bool = False,
     ) -> None:
         enable_dpi_awareness()
         logger = get_logger()
@@ -53,6 +55,14 @@ class Application:
             ),
         )
         self.last_region: Region | None = config.regions.fixed_region("tooltip")
+        self.diagnose = diagnose
+        self.watchdog = UiWatchdog(
+            stall_seconds=5.0,
+            interval=2.0,
+            dump=make_dump_all_threads(fault_stream()),
+        )
+        self.heartbeat_interval = 2 if diagnose else 10
+        self.beat_count = 0
         logger.info(
             "初始化完成：采集后端 %s，OCR 后端 %s，标定区域 %s，跟随光标区域 %s",
             self.grabber.name,
@@ -161,29 +171,56 @@ class Application:
     # ---- 启动 ----
     def start(self) -> None:
         logger = get_logger()
-        registered = 0
-        if self.use_hotkeys:
-            bindings = self.config.hotkeys
-            for action, hotkey, callback in (
-                ("取词翻译", bindings.translate, self.request_translate),
-                ("框选区域", bindings.select_region, self.request_select_region),
-                ("退出", bindings.quit, self.quit),
-            ):
-                try:
-                    self.hotkeys.register(action, hotkey, callback)
-                    registered += 1
-                except RuntimeError as exc:
-                    logger.error("注册热键失败：%s", exc)
-                    self.window.set_status(str(exc))
-        logger.info("热键注册完成：%d 个", registered)
         self.window.root.report_callback_exception = self._on_tk_error
-        self.window.set_status(f"就绪：{registered} 个热键已注册，把鼠标移到物品上按热键取词")
+        self.window.heartbeat = self.watchdog.beat
+        self.watchdog.start()
         self.window.poll(self.queue)
+        self._schedule_heartbeat()
+        if self.use_hotkeys:
+            threading.Thread(
+                target=self._register_hotkeys, name="hotkey-register", daemon=True
+            ).start()
+        else:
+            self.window.set_status("就绪：热键已禁用，可点「重新取词」按钮")
         logger.info("进入界面主循环")
         self.window.run()
         logger.info("界面退出")
+        self.watchdog.stop()
         self.hotkeys.stop()
         self.grabber.close()
+
+    def _schedule_heartbeat(self) -> None:
+        """每秒一次心跳：界面只要在正常处理事件，日志里就会持续打点。"""
+
+        def tick() -> None:
+            self.beat_count += 1
+            if self.beat_count % self.heartbeat_interval == 0:
+                get_logger().info("心跳 %d：界面正常", self.beat_count)
+            self.window.root.after(1000, tick)
+
+        self.window.root.after(1000, tick)
+
+    def _register_hotkeys(self) -> None:
+        """在后台线程注册全局热键：避免键盘钩子与 Tk 消息循环互相影响。"""
+
+        logger = get_logger()
+        bindings = self.config.hotkeys
+        registered = 0
+        for action, hotkey, callback in (
+            ("取词翻译", bindings.translate, self.request_translate),
+            ("框选区域", bindings.select_region, self.request_select_region),
+            ("退出", bindings.quit, self.quit),
+        ):
+            try:
+                self.hotkeys.register(action, hotkey, callback)
+                registered += 1
+            except RuntimeError as exc:
+                logger.error("注册热键失败：%s", exc)
+                self.queue.put(("status", str(exc)))
+        logger.info("热键注册完成：%d 个", registered)
+        self.queue.put(
+            ("status", f"就绪：{registered} 个热键已注册，把鼠标移到物品上按热键取词")
+        )
 
     def _on_tk_error(self, exc_type, exc_value, exc_tb) -> None:
         get_logger().error("界面回调异常", exc_info=(exc_type, exc_value, exc_tb))

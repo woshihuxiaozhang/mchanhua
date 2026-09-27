@@ -197,7 +197,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     if args.region:
         config.regions.fixed["tooltip"] = args.region
-    app = Application(config, use_hotkeys=not args.no_hotkeys)
+    app = Application(config, use_hotkeys=not args.no_hotkeys, diagnose=args.diagnose)
     print("小窗已启动。热键：取词翻译 / 框选区域 / 退出（见配置文件 [hotkeys]）")
     print(f"日志文件：{LOG_PATH}")
     get_logger().info("启动界面：配置 %r，OCR 后端 %s", args.config, config.ocr.backend)
@@ -259,6 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="启动取词小窗（热键 + 框选）")
     run.add_argument("-r", "--region", help="预先指定固定采集区域 x,y,w,h")
     run.add_argument("--no-hotkeys", action="store_true", help="不注册全局热键（只点按钮）")
+    run.add_argument("--diagnose", action="store_true", help="输出心跳日志，界面卡死时记录线程堆栈")
     run.set_defaults(func=cmd_run)
     return parser
 

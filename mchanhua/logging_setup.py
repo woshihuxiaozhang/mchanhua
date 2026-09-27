@@ -78,3 +78,9 @@ def setup_logging(path: Path | None = None, level: int = logging.INFO) -> Path:
 
 def get_logger() -> logging.Logger:
     return logging.getLogger(LOGGER_NAME)
+
+
+def fault_stream() -> object | None:
+    """返回 faulthandler 使用的日志文件对象，供看门狗 dump 线程堆栈用。"""
+
+    return _FAULT_FILE

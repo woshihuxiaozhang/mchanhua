@@ -45,13 +45,12 @@ class ResultWindow:
     def __init__(self, config: Config, callbacks: WindowCallbacks | None = None) -> None:
         self.config = config
         self.callbacks = callbacks or WindowCallbacks()
+        self.heartbeat = None
         self.root = tk.Tk()
         self.root.title("mchanhua 取词翻译")
         self.root.attributes("-topmost", bool(config.ui.always_on_top))
-        try:
-            self.root.attributes("-alpha", float(config.ui.opacity))
-        except tk.TclError:  # pragma: no cover - 少数平台不支持
-            pass
+        # 透明度放到窗口映射之后再设：映射前设置分层窗口属性，在部分环境下会导致窗口不重绘
+        self.root.after(200, self._apply_alpha)
 
         width, height = config.ui.width, config.ui.height
         x, y = resolve_position(config.ui, (self.root.winfo_screenwidth(), self.root.winfo_screenheight()))
@@ -120,6 +119,12 @@ class ResultWindow:
             widget.bind("<Button-1>", self._start_drag)
             widget.bind("<B1-Motion>", self._drag)
         self._drag_origin: tuple[int, int] | None = None
+
+    def _apply_alpha(self) -> None:
+        try:
+            self.root.attributes("-alpha", float(self.config.ui.opacity))
+        except tk.TclError:  # pragma: no cover - 少数平台不支持
+            pass
 
     # ---- 拖动窗口 ----
     def _start_drag(self, event) -> None:
@@ -193,9 +198,10 @@ class ResultWindow:
                 self._quit()
 
     def poll(self, message_queue: "queue.Queue[tuple]", interval_ms: int = 60) -> None:
+        if self.heartbeat is not None:
+            self.heartbeat()
         self.drain(message_queue)
         self.root.after(interval_ms, lambda: self.poll(message_queue, interval_ms))
 
     def run(self) -> None:
         self.root.mainloop()
-
