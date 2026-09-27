@@ -451,6 +451,8 @@ class Application:
             ("只框选选区", bindings.select_region, self.request_select_region),
             ("退出", bindings.quit, self.quit),
         ):
+            if not (hotkey or "").strip():
+                continue          # 留空 = 不注册这个热键
             try:
                 self.hotkeys.register(action, hotkey, callback)
                 registered += 1

@@ -168,6 +168,11 @@ class ResultWindow:
             text_color=theme.text_dim, command=self.toggle_collapsed,
         )
         self.collapse_button.pack(side="right", padx=(0, 6))
+        ctk.CTkButton(
+            strip, text="✕", width=24, height=24, corner_radius=6, font=self.tiny_font,
+            fg_color="transparent", hover_color=theme.border,
+            text_color=theme.text_dim, command=self._quit,
+        ).pack(side="right", padx=(0, 2))
 
         for widget in (strip, mark, self.inline):
             widget.bind("<Button-1>", self._start_drag)

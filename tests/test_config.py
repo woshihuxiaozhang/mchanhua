@@ -18,7 +18,9 @@ def test_defaults_when_file_missing(workdir):
     config = load_config(workdir / "missing.toml")
     assert config.ocr.backend == "auto"
     assert config.translate.model == "deepseek-chat"
-    assert config.hotkeys.translate == "ctrl+alt+q"
+    assert config.hotkeys.translate == "ctrl+alt"
+    assert config.hotkeys.translate_clipboard == "alt+s"
+    assert config.hotkeys.quit == ""      # 默认为空 = 不注册退出热键
     assert config.resolved_api_key == ""
 
 

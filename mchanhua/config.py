@@ -38,13 +38,13 @@ def project_config_path(project_dir: Path | None = None) -> Path:
 
 @dataclass
 class HotkeysConfig:
-    translate: str = "ctrl+alt+q"
+    translate: str = "ctrl+alt"
     translate_region: str = "alt+/"
     translate_fullscreen: str = "alt+m"
-    translate_clipboard: str = "ctrl+alt+s"
+    translate_clipboard: str = "alt+s"
     select_region: str = "alt+v"
     toggle_window: str = "ctrl+alt+w"
-    quit: str = "ctrl+alt+x"
+    quit: str = ""            # 留空表示不注册退出热键
 
 
 @dataclass
