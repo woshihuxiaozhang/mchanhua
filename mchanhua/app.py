@@ -58,7 +58,12 @@ class Application:
             self.translator_error = "未配置 DeepSeek API key，只显示 OCR 原文"
             return None
         try:
-            self.translator = create_translator(self.config.translate, api_key, self.cache_path)
+            self.translator = create_translator(
+                self.config.translate,
+                api_key,
+                self.cache_path,
+                self.config.glossary,
+            )
         except TranslationError as exc:
             self.translator_error = str(exc)
         return self.translator

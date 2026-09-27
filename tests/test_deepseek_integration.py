@@ -89,3 +89,18 @@ def test_cache_disabled_always_calls_api(fake_server, workdir):
     translator.translate_lines(["Steel Ingot"])
     translator.translate_lines(["Steel Ingot"])
     assert len(FakeDeepSeek.requests) == 2
+
+
+def test_builtin_glossary_is_sent_and_user_override_wins(fake_server, workdir):
+    config = TranslateConfig(base_url=fake_server, api_key="sk-local", cache_enabled=False)
+    translator = create_translator(
+        config,
+        api_key="sk-local",
+        cache_path=workdir / "cache.sqlite",
+        glossary={"Redstone": "红石粉（自定义）"},
+    )
+    translator.translate_lines(["Redstone"])
+
+    system_prompt = FakeDeepSeek.requests[-1]["body"]["messages"][0]["content"]
+    assert "Redstone=红石粉（自定义）" in system_prompt   # 用户配置覆盖内置
+    assert "Netherite=下界合金" in system_prompt          # 内置术语仍然生效

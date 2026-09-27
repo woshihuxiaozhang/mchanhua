@@ -15,6 +15,7 @@ from mchanhua.translate.base import (
 )
 from mchanhua.translate.cache import TranslationCache
 from mchanhua.translate.deepseek import DeepSeekTranslator
+from mchanhua.translate.glossary import DEFAULT_GLOSSARY
 
 __all__ = [
     "CachingTranslator",
@@ -24,6 +25,7 @@ __all__ = [
     "Translator",
     "contains_cjk",
     "create_translator",
+    "DEFAULT_GLOSSARY",
     "should_translate",
     "split_translatable",
 ]
@@ -64,16 +66,23 @@ class CachingTranslator:
         return [value if value is not None else source for value, source in zip(result, sources)]
 
 
-def create_translator(config: TranslateConfig, api_key: str, cache_path: Path | None = None) -> Translator:
+def create_translator(
+    config: TranslateConfig,
+    api_key: str,
+    cache_path: Path | None = None,
+    glossary: dict[str, str] | None = None,
+) -> Translator:
     if config.provider != "deepseek":
         raise TranslationError(f"暂不支持的翻译服务：{config.provider}")
 
+    merged_glossary = {**DEFAULT_GLOSSARY, **(glossary or {})}
     engine = DeepSeekTranslator(
         api_key=api_key,
         base_url=config.base_url,
         model=config.model,
         timeout=config.timeout,
         temperature=config.temperature,
+        glossary=merged_glossary,
     )
     if not config.cache_enabled:
         return engine
