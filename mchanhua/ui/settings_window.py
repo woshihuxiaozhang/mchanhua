@@ -299,7 +299,8 @@ class SettingsWindow:
                 problems.append(f"{label}：{exc}")
                 continue
             bindings[label] = value
-        problems.extend(find_conflicts(bindings))
+        # 只有"格式非法/完全重复"才阻止保存；前缀重叠只提示
+        problems.extend(find_conflicts(bindings, include_overlap=False))
         from mchanhua.ui.contrast import check_colors
 
         problems.extend(
@@ -344,9 +345,18 @@ class SettingsWindow:
         get_logger().info("设置已保存：%s", path)
         if self.on_saved is not None:
             self.on_saved(config)
+        bindings = {
+            label: str(self._vars[f"hotkey.{key}"].get()).strip()
+            for key, label in HOTKEY_LABELS
+            if str(self._vars[f"hotkey.{key}"].get()).strip()
+        }
+        hints = [
+            problem for problem in find_conflicts(bindings) if problem not in problems
+        ]
         messagebox.showinfo(
             "已保存",
-            f"已保存到：\n{path}\n\n热键与翻译服务立即生效，界面外观重启后生效。",
+            f"已保存到：\n{path}\n\n热键与翻译服务立即生效，界面外观重启后生效。"
+            + ("\n\n提醒（不影响使用）：\n" + "\n".join(hints) if hints else ""),
         )
 
     def run(self) -> None:

@@ -36,8 +36,12 @@ def is_modifier_only(hotkey: str) -> bool:
     return bool(parts) and all(part in MODIFIERS for part in parts)
 
 
-def find_conflicts(bindings: dict[str, str]) -> list[str]:
-    """找出重复或互相干扰的热键。"""
+def find_conflicts(bindings: dict[str, str], include_overlap: bool = True) -> list[str]:
+    """找出重复或互相干扰的热键。
+
+    include_overlap=False 时只返回"必须修"的硬错误（格式非法、完全重复），
+    前缀重叠（如 ctrl+alt 与 ctrl+alt+x）只作为提示，不阻止保存。
+    """
 
     problems: list[str] = []
     seen: dict[str, list[str]] = {}
@@ -54,6 +58,8 @@ def find_conflicts(bindings: dict[str, str]) -> list[str]:
             problems.append(f"{hotkey} 被重复设置：{' / '.join(actions)}")
 
     for hotkey, actions in seen.items():
+        if not include_overlap:
+            break
         if not is_modifier_only(hotkey):
             continue
         for other, other_actions in seen.items():
