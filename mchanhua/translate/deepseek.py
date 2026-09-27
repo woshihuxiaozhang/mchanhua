@@ -11,7 +11,7 @@ import httpx
 from mchanhua.translate.base import TranslationError
 from mchanhua.translate.placeholders import missing_tokens, protect_lines, restore
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 SYSTEM_PROMPT = """你是 Minecraft 模组与整合包的中英翻译译者，负责把游戏界面文本翻译成简体中文。
 
@@ -21,6 +21,9 @@ SYSTEM_PROMPT = """你是 Minecraft 模组与整合包的中英翻译译者，�
 3. 文本中的哨兵字符（\\ue000数字\\ue001）代表格式占位符（颜色码、%s 之类），必须原样保留在译文对应位置，不得翻译、删除或改动。
 4. 已经是中文、或没有实际词义的文本（纯数字、纯符号），把原文原样放进 dst。
 5. 使用 Minecraft 中文社区的通行译法，保持简洁，不要加句号之外的额外标点。
+6. **输入来自屏幕 OCR，可能有个别字符识别错误**（例如 l/I、o/0、w/u、rn/m 混淆，下划线丢失）。
+   遇到明显是识别错误的英文单词时，请按最接近的常见英文单词理解并翻译（例如 "Suitch" 应理解为 "Switch"），
+   不要原样返回；只有确定是无法翻译的标识符（命令、代码、玩家 ID）才保留原文。
 
 译文风格示例：
 - "Durability" → "耐久"

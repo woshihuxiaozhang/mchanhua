@@ -17,6 +17,8 @@ from mchanhua.geometry import Region, enable_dpi_awareness
 from mchanhua.ocr import create_engine
 from mchanhua.ocr import windows as windows_ocr
 from mchanhua.ocr.base import OcrUnavailable
+from mchanhua.pipeline import render_pairs, run_pipeline
+from mchanhua.translate import create_translator
 
 
 def _load_image(path: Path, region: Region | None) -> Image.Image:
@@ -55,7 +57,10 @@ def cmd_probe(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     print(f"mchanhua {__version__}")
     print(f"DPI 感知模式：{mode}")
-    print(f"配置文件：{args.config or '<默认路径>'}")
+    from mchanhua.config import resolve_config_path
+
+    resolved = resolve_config_path(args.config)
+    print(f"配置文件：{resolved}{'' if resolved.exists() else '（不存在，使用默认值）'}")
     try:
         grabber = create_grabber(config.capture.backend, config.capture.monitor)
         monitors = grabber.monitors()
@@ -127,6 +132,39 @@ def cmd_ocr_screen(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_translate_image(args: argparse.Namespace) -> int:
+    """对图片做「OCR + 真实翻译」，用来验证 API key 与翻译效果（不开界面）。"""
+
+    enable_dpi_awareness()
+    config = load_config(args.config)
+    region = Region.parse(args.region) if args.region else None
+    image = _load_image(Path(args.image), region)
+    engine = create_engine(
+        args.backend or config.ocr.backend,
+        config.ocr.language,
+        args.upscale or config.ocr.upscale,
+        invert=config.ocr.invert,
+    )
+
+    translator = None
+    api_key = config.resolved_api_key
+    if api_key:
+        translator = create_translator(config.translate, api_key, glossary=config.glossary)
+    else:
+        print("未配置 DeepSeek API key，只输出识别原文。", file=sys.stderr)
+
+    result = run_pipeline(image, engine, translator)
+    print(render_pairs(result))
+    print()
+    print(
+        f"--- OCR {result.ocr_ms:.0f} ms / 翻译 {result.translate_ms:.0f} ms / "
+        f"已翻 {result.translated_count} 行 / 后端 {result.ocr_backend} ---"
+    )
+    for warning in result.warnings:
+        print(f"提示：{warning}", file=sys.stderr)
+    return 0
+
+
 def cmd_config_init(args: argparse.Namespace) -> int:
     config = Config()
     if args.config:
@@ -188,6 +226,13 @@ def build_parser() -> argparse.ArgumentParser:
     ocr_screen.add_argument("--save", help="把截图保存到指定路径，便于排查")
     ocr_screen.add_argument("--json", action="store_true", help="输出 JSON")
     ocr_screen.set_defaults(func=cmd_ocr_screen)
+
+    translate_image = sub.add_parser("translate-image", help="对图片做 OCR + 翻译（验证 API key 用）")
+    translate_image.add_argument("image")
+    translate_image.add_argument("-r", "--region", help="只处理图片中的 x,y,w,h 区域")
+    translate_image.add_argument("--upscale", type=float, help="识别前放大倍数，默认取配置值")
+    translate_image.add_argument("--backend", choices=("auto", "windows", "rapidocr"), help="OCR 后端")
+    translate_image.set_defaults(func=cmd_translate_image)
 
     config_init = sub.add_parser("config-init", help="写出默认配置文件")
     config_init.add_argument(
