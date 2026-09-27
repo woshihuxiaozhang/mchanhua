@@ -1,8 +1,8 @@
-"""结果小窗：紧凑工具条 + 可展开面板（简约 / 暖单色）。
+"""取词小窗：按参考图实现——白卡片 + 透明背景。
 
-默认只有一条细横条：左边标记、中间一行译文、右边耗时与展开箭头。
-展开后是一张卡片：译文（大字）→ 分隔线 → 原文（次级灰），底部是固定/复制/设置。
-所有颜色、字号、行高都来自配置里的主题；折叠即收起面板。
+布局（自上而下）：标题行（标记 · 取词翻译 · 服务标签 · 最小化/关闭）
+→ 译文（大字）→ 原文（灰字，在译文下方）→ 元信息行 → 四个圆角按钮。
+窗口背景透明，只有白卡片可见；卡片可拖动，双击标题行折叠。
 """
 
 from __future__ import annotations
@@ -16,20 +16,16 @@ import customtkinter as ctk
 
 from mchanhua.config import Config
 from mchanhua.pipeline import PipelineResult
-from mchanhua.ui.theme import Theme
 
 FONT_STEPS = (11, 13, 15, 19)
+TRANSPARENT = "#010203"          # 只用来做透明键，不参与主题
 
 
 def snap_font_size(size: int) -> int:
-    """字号归到最近的阶梯（排版规范要求成体系）。"""
-
     return min(FONT_STEPS, key=lambda step: abs(step - size))
 
 
 def resolve_position(config, screen_size: tuple[int, int]) -> tuple[int, int]:
-    """根据配置算出窗口左上角坐标（逻辑坐标）。"""
-
     screen_w, screen_h = screen_size
     margin = 24
     if config.position == "left":
@@ -55,8 +51,6 @@ class WindowCallbacks:
 
 
 def drain_queue(message_queue: "queue.Queue[tuple]", sink, max_messages: int = 50) -> int:
-    """把队列里的消息交给 sink；"call" 消息是在界面线程执行的一次性任务。"""
-
     handled = 0
     for _ in range(max_messages):
         try:
@@ -92,156 +86,130 @@ class ResultWindow:
         self.config = config
         self.callbacks = callbacks or WindowCallbacks()
         self.heartbeat = None
-        self.theme = Theme.from_config(config.ui)
-        theme = self.theme
+        ui = config.ui
 
-        ctk.set_appearance_mode("dark" if _is_dark(theme.background) else "light")
-        self.root = ctk.CTk(fg_color=theme.background)
+        ctk.set_appearance_mode("dark" if _is_dark(ui.background) else "light")
+        self.root = ctk.CTk(fg_color=TRANSPARENT)
         self.root.title("mchanhua 取词翻译")
-        self.root.attributes("-topmost", bool(theme.always_on_top))
+        self.root.attributes("-topmost", bool(ui.always_on_top))
+        # 背景透明：把透明键色之外的部分留给白卡片
+        try:
+            self.root.attributes("-transparentcolor", TRANSPARENT)
+        except tk.TclError:  # pragma: no cover - 少数平台不支持
+            pass
         self.root.after(200, self._apply_alpha)
 
-        x, y = resolve_position(
-            config.ui, (self.root.winfo_screenwidth(), self.root.winfo_screenheight())
+        x, y = resolve_position(ui, (self.root.winfo_screenwidth(), self.root.winfo_screenheight()))
+        self.root.geometry(f"{ui.width}x{ui.height}+{x}+{y}")
+        self.root.minsize(400, 190)
+
+        family = ui.font_family or "Microsoft YaHei UI"
+        self.f_title = ctk.CTkFont(family=family, size=snap_font_size(ui.font_size))
+        self.f_result = ctk.CTkFont(family=family, size=snap_font_size(ui.result_font_size))
+        self.f_source = ctk.CTkFont(family=family, size=snap_font_size(ui.source_font_size))
+        self.f_meta = ctk.CTkFont(family=family, size=FONT_STEPS[0])
+
+        self.card = ctk.CTkFrame(
+            self.root, corner_radius=12, fg_color="#FFFFFF", border_width=1, border_color="#E8E8E8"
         )
-        self.root.geometry(f"{theme.width}x{theme.height}+{x}+{y}")
-        self.root.minsize(320, 96)
+        self.card.pack(fill="both", expand=True, padx=6, pady=6)
 
-        family = theme.font_family or "Microsoft YaHei UI"
-        mono = "Consolas"
-        self.strip_font = ctk.CTkFont(family=family, size=snap_font_size(theme.font_size))
-        self.meta_font = ctk.CTkFont(family=mono, size=FONT_STEPS[0])
-        self.tiny_font = ctk.CTkFont(family=family, size=FONT_STEPS[0])
-        self.result_font = ctk.CTkFont(family=family, size=snap_font_size(theme.result_font_size))
-        self.source_font = ctk.CTkFont(family=family, size=snap_font_size(theme.source_font_size))
-        self.line_px = max(0, round((theme.line_height - 1.0) * snap_font_size(theme.result_font_size)))
-
-        self.action_bars: list = []
         self.collapsed = False
         self.compare_mode = False
         self.source_visible = True
-        self._last_result: PipelineResult | None = None
+        self.action_bars: list = []
+        self._drag_origin = None
 
-        self._build_strip()
-        self._build_panel()
-        self._build_status()
-        self._drag_origin: tuple[int, int] | None = None
+        self._build_title()
+        self._build_text()
+        self._build_meta()
+        self.set_status("待取词：把鼠标移到物品上按热键")
+        self._build_buttons()
 
-    # ---- 外观 ----
-    def _apply_alpha(self) -> None:
-        if self.theme.opacity >= 0.999:
-            return
-        try:
-            self.root.attributes("-alpha", float(self.theme.opacity))
-        except tk.TclError:  # pragma: no cover
-            pass
-
-    def _build_strip(self) -> None:
-        theme = self.theme
-        strip = ctk.CTkFrame(
-            self.root, corner_radius=8, fg_color=theme.panel,
-            border_width=1, border_color=theme.border, height=40,
+    # ---- 顶部标题行 ----
+    def _build_title(self) -> None:
+        row = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
+        row.pack(fill="x", padx=16, pady=(12, 0))
+        ctk.CTkLabel(row, text="文", width=20, height=20, corner_radius=4,
+                     fg_color="#E8F0FE", text_color="#1A73E8", font=self.f_meta).pack(side="left")
+        ctk.CTkLabel(row, text="取词翻译", font=self.f_title, text_color="#1B1B1B").pack(
+            side="left", padx=(6, 8)
         )
-        strip.pack(fill="x", padx=theme.padding, pady=(theme.padding, 4))
-
-        mark = ctk.CTkLabel(
-            strip, text="译", width=26, height=22, corner_radius=4,
-            fg_color=theme.accent_soft, text_color=theme.accent, font=self.tiny_font,
+        self.provider_chip = ctk.CTkLabel(
+            row, text=self._provider_label(), height=20, corner_radius=10, padx=8,
+            fg_color="#E8F0FE", text_color="#1A73E8", font=self.f_meta,
         )
-        mark.pack(side="left", padx=(8, 8), pady=8)
-
-        self.inline = ctk.CTkLabel(
-            strip, text="待取词：移到物品上按热键", anchor="w",
-            font=self.strip_font, text_color=theme.text_dim,
-        )
-        self.inline.pack(side="left", fill="x", expand=True)
-
-        self.chip = ctk.CTkLabel(
-            strip, text="", height=20, corner_radius=4, padx=6,
-            fg_color=theme.accent_soft, text_color=theme.accent, font=self.meta_font,
-        )
-        self.chip.pack(side="right", padx=(6, 4))
-
-        self.collapse_button = ctk.CTkButton(
-            strip, text="展开", width=44, height=24, corner_radius=6, font=self.tiny_font,
-            fg_color="transparent", hover_color=theme.border,
-            text_color=theme.text_dim, command=self.toggle_collapsed,
-        )
-        self.collapse_button.pack(side="right", padx=(0, 6))
-        ctk.CTkButton(
-            strip, text="✕", width=24, height=24, corner_radius=6, font=self.tiny_font,
-            fg_color="transparent", hover_color=theme.border,
-            text_color=theme.text_dim, command=self._quit,
-        ).pack(side="right", padx=(0, 2))
-
-        for widget in (strip, mark, self.inline):
+        self.provider_chip.pack(side="left")
+        for text, command in (("✕", self._quit), ("—", self._minimize)):
+            ctk.CTkButton(row, text=text, width=28, height=24, corner_radius=6,
+                          fg_color="transparent", hover_color="#F1F1F1",
+                          text_color="#5F6368", font=self.f_meta, command=command).pack(
+                side="right", padx=2
+            )
+        for widget in (row, self.card):
             widget.bind("<Button-1>", self._start_drag)
             widget.bind("<B1-Motion>", self._drag)
-        self.strip = strip
+            widget.bind("<Double-Button-1>", lambda _event: self.toggle_collapsed())
 
-    def _build_panel(self) -> None:
-        theme = self.theme
-        self.panel = ctk.CTkFrame(
-            self.root, corner_radius=8, fg_color=theme.panel,
-            border_width=1, border_color=theme.border,
-        )
-        self.panel.pack(fill="both", expand=True, padx=theme.padding, pady=(0, 4))
-
+    # ---- 译文 / 原文 ----
+    def _build_text(self) -> None:
         self.target = ctk.CTkTextbox(
-            self.panel, wrap="word", font=self.result_font, height=62,
-            fg_color="transparent", text_color=theme.text, corner_radius=0, border_width=0,
+            self.card, wrap="word", font=self.f_result, fg_color="transparent",
+            text_color="#111111", corner_radius=0, border_width=0, height=48,
         )
-        self.target.pack(fill="both", expand=True, padx=8, pady=(8, 2))
-        self._apply_line_spacing(self.target)
-
-        divider = ctk.CTkFrame(self.panel, height=1, fg_color=theme.border, corner_radius=0)
-        divider.pack(fill="x", padx=8, pady=2)
-
-        self.source_area = ctk.CTkFrame(self.panel, corner_radius=0, fg_color="transparent")
-        self.source_area.pack(fill="x", padx=8, pady=(2, 0))
+        self.target.pack(fill="x", padx=12, pady=(8, 0))
+        self.source_area = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
+        self.source_area.pack(fill="x", padx=12)
         self.source = ctk.CTkTextbox(
-            self.source_area, height=44, wrap="word", font=self.source_font,
-            fg_color="transparent", text_color=theme.text_dim, corner_radius=0, border_width=0,
+            self.source_area, wrap="word", font=self.f_source, fg_color="transparent",
+            text_color="#8A8A8A", corner_radius=0, border_width=0, height=34,
         )
         self.source.pack(fill="x")
-        self._apply_line_spacing(self.source, scale=0.7)
 
-        bar = ctk.CTkFrame(self.panel, corner_radius=0, fg_color="transparent")
-        bar.pack(fill="x", padx=8, pady=(4, 8))
-        self.action_bars.append(bar)
-        for text, command, primary in (
-            ("固定", self._toggle_pin, False),
-            ("复制", self._copy_result, False),
-            ("翻译选区", self._translate, True),
-            ("设置", self._open_settings, False),
-        ):
-            ctk.CTkButton(
-                bar, text=text, height=26, corner_radius=6, font=self.tiny_font,
-                fg_color=theme.button_primary if primary else theme.button_background,
-                hover_color=theme.button_primary if primary else theme.border,
-                text_color=theme.button_primary_text if primary else theme.button_text,
-                border_width=0 if primary else 1, border_color=theme.border,
-                command=command,
-            ).pack(side="left", padx=(0, 6))
-
-    def _build_status(self) -> None:
+    def _build_meta(self) -> None:
         self.status = ctk.CTkLabel(
-            self.root, text="就绪：Alt+V 框选一次，之后按 Ctrl+Alt 翻译",
-            anchor="w", justify="left", font=self.tiny_font, text_color=self.theme.text_dim,
+            self.card, text="", anchor="w", justify="left",
+            font=self.f_meta, text_color="#9A9A9A",
         )
-        self.status.pack(fill="x", padx=self.theme.padding + 2, pady=(0, self.theme.padding))
+        self.status.pack(fill="x", padx=16, pady=(2, 0))
 
-    def _apply_line_spacing(self, textbox, scale: float = 1.0) -> None:
-        inner = getattr(textbox, "_textbox", None)
-        if inner is None:
+    # ---- 底部按钮 ----
+    def _build_buttons(self) -> None:
+        bar = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
+        bar.pack(fill="x", padx=12, pady=(10, 12))
+        self.action_bars.append(bar)
+        specs = (
+            ("翻译选区", self._translate, True, "scan-text"),
+            ("框选并翻译", self._select_and_translate, False, "crop"),
+            ("全屏翻译", self._translate_fullscreen, False, "monitor"),
+            ("设置", self._open_settings, False, "settings"),
+        )
+        for text, command, primary, _icon in specs:
+            ctk.CTkButton(
+                bar, text=text, height=34, corner_radius=6, font=self.f_source,
+                fg_color="#E8F0FE" if primary else "#FFFFFF",
+                hover_color="#DCE7FB" if primary else "#F1F1F1",
+                text_color="#1A73E8" if primary else "#3C4043",
+                border_width=0 if primary else 1, border_color="#E0E0E0",
+                command=command,
+            ).pack(side="left", padx=(0, 8))
+
+    def _provider_label(self) -> str:
+        from mchanhua.translate.providers import find_preset
+
+        preset = find_preset(self.config.translate.provider)
+        return preset.label.split("（")[0] if preset else self.config.translate.provider
+
+    # ---- 窗口行为 ----
+    def _apply_alpha(self) -> None:
+        opacity = float(self.config.ui.opacity)
+        if opacity >= 0.999:
             return
-        spacing = max(0, round(self.line_px * scale))
         try:
-            inner.configure(spacing2=spacing, spacing3=spacing)
+            self.root.attributes("-alpha", opacity)
         except tk.TclError:  # pragma: no cover
             pass
 
-    # ---- 交互 ----
     def _start_drag(self, event) -> None:
         self._drag_origin = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
 
@@ -250,47 +218,29 @@ class ResultWindow:
             return
         self.root.geometry(f"+{event.x_root - self._drag_origin[0]}+{event.y_root - self._drag_origin[1]}")
 
+    def _minimize(self) -> None:
+        self.root.iconify()
+
     def toggle_collapsed(self) -> None:
-        """折叠 / 展开：折叠只留一条横条，展开显示译文与原文。"""
+        """折叠：只留标题行与译文；再双击展开。"""
 
         self.collapsed = not self.collapsed
         self.compare_mode = not self.collapsed
         if self.collapsed:
-            self.panel.pack_forget()
-            self.collapse_button.configure(text="展开")
-            self.set_status("已折叠：只保留这条横条（点「展开」看原文）")
+            self.source_area.pack_forget()
+            for bar in self.action_bars:
+                bar.pack_forget()
+            self.set_status("已折叠（双击标题行可展开）")
         else:
-            self.panel.pack(fill="both", expand=True, padx=self.theme.padding, pady=(0, 4))
-            self.collapse_button.configure(text="收起")
-            self.set_status("已展开：译文在上，原文在下")
+            self.source_area.pack(fill="x", padx=12)
+            for bar in self.action_bars:
+                bar.pack(fill="x", padx=12, pady=(10, 12))
+            self.set_status("已展开（译文在上，原文在下）")
 
     def set_compare_mode(self, enabled: bool) -> None:
-        """展开/收起面板（保留旧接口语义）。"""
-
         if bool(enabled) == (not self.collapsed):
             return
         self.toggle_collapsed()
-
-    def _toggle_pin(self) -> None:
-        current = bool(self.root.attributes("-topmost"))
-        self.root.attributes("-topmost", not current)
-        self.set_status("已取消置顶" if current else "已置顶")
-
-    def _copy_result(self) -> None:
-        text = self.target.get("1.0", "end").strip()
-        if not text:
-            self.set_status("没有可复制的译文")
-            return
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-        self.set_status("译文已复制到剪贴板")
-
-    def _toggle_source(self) -> None:
-        self.source_visible = not self.source_visible
-        if self.source_visible:
-            self.source.pack(fill="x")
-        else:
-            self.source.pack_forget()
 
     def _call(self, name: str) -> None:
         callback = getattr(self.callbacks, name, None)
@@ -321,8 +271,7 @@ class ResultWindow:
     def _clear(self) -> None:
         self.target.delete("1.0", "end")
         self.source.delete("1.0", "end")
-        self.inline.configure(text="待取词：移到物品上按热键", text_color=self.theme.text_dim)
-        self.chip.configure(text="")
+        self.set_status("待取词：把鼠标移到物品上按热键")
 
     # ---- 显示 ----
     def set_status(self, text: str) -> None:
@@ -334,38 +283,25 @@ class ResultWindow:
     def show_source(self, lines: list[str], elapsed_ms: float) -> None:
         self.source.delete("1.0", "end")
         self.source.insert("1.0", "\n".join(lines))
-        joined = " ".join(part.strip() for part in lines if part.strip())
-        self.inline.configure(text=joined[:28] + ("…" if len(joined) > 28 else ""), text_color=self.theme.text)
-        self.chip.configure(text=f"{elapsed_ms / 1000:.1f}s")
-        self.set_status(f"OCR 完成（{elapsed_ms:.0f} ms），正在翻译…")
+        self.set_status(f"OCR {elapsed_ms:.0f} ms · 正在翻译…")
 
     def show_result(self, result: PipelineResult) -> None:
-        self._last_result = result
-        self.source.delete("1.0", "end")
-        self.source.insert("1.0", "\n".join(result.source_lines))
         self.target.delete("1.0", "end")
         self.target.insert("1.0", "\n".join(result.output_lines))
-
-        first = next((line.strip() for line in result.output_lines if line.strip()), "")
-        self.inline.configure(
-            text=first[:28] + ("…" if len(first) > 28 else "") or "（没有译文）",
-            text_color=self.theme.text,
-        )
-        total_ms = result.ocr_ms + result.translate_ms
-        self.chip.configure(text=f"{total_ms / 1000:.1f}s")
-
-        # 多行结果自动展开（需要看原文），单行则保持紧凑
-        if len(result.source_lines) >= 3:
-            if self.collapsed:
-                self.toggle_collapsed()
-            else:
-                self.compare_mode = True
-
+        self.source.delete("1.0", "end")
+        self.source.insert("1.0", "\n".join(result.source_lines))
+        self.provider_chip.configure(text=self._provider_label())
+        if len(result.source_lines) >= 3 and self.collapsed:
+            self.toggle_collapsed()
+        elif len(result.source_lines) >= 3:
+            self.compare_mode = True
         parts = [
             f"OCR {result.ocr_ms:.0f} ms",
             f"翻译 {result.translate_ms:.0f} ms",
             f"已翻 {result.translated_count} 行",
         ]
+        if self.config.regions.custom_region() is not None:
+            parts.append(f"选区 {self.config.regions.custom_region().to_csv()}")
         if result.warnings:
             parts.append(f"提示：{result.warnings[0]}")
         self.set_status(" · ".join(parts))
