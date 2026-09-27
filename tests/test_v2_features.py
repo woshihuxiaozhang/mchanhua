@@ -165,7 +165,7 @@ def test_select_and_translate_cancel_does_not_translate(workdir: Path, monkeypat
 
 
 def test_select_region_only_does_not_translate(workdir: Path, monkeypatch):
-    """Ctrl+Alt+R 只框选保存，不触发翻译；之后再按 Ctrl+Alt 才翻译。"""
+    """Alt+V 只框选保存，不触发翻译；之后再按 Ctrl+Alt 才翻译。"""
 
     app = _app(workdir)
     monkeypatch.setattr("mchanhua.app.pick_region", lambda monitor, parent: Region(7, 8, 90, 100))

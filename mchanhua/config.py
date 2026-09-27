@@ -42,7 +42,7 @@ class HotkeysConfig:
     translate_region: str = "alt+/"
     translate_fullscreen: str = "alt+m"
     translate_clipboard: str = "ctrl+alt+s"
-    select_region: str = "ctrl+alt+r"
+    select_region: str = "alt+v"
     toggle_window: str = "ctrl+alt+w"
     quit: str = "ctrl+alt+x"
 

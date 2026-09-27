@@ -32,8 +32,9 @@ D:\Tools\Miniconda3\python.exe -m venv .venv
 .\.venv\Scripts\python.exe -m mchanhua run
 ```
 
-使用流程：按 `Ctrl+Alt+R` 框选一次取词区域（会保存到配置文件）→ 之后按 `Alt+/` 翻译该区域、
-按 `Alt+m` 全屏翻译 → 小窗显示原文与译文。翻译结果会缓存，同一句话不会重复调用接口。
+使用流程：按 `Alt+V` 框选一次取词区域（会保存到配置文件）→ 之后按 `Ctrl+Alt` 翻译该区域、
+按 `Alt+/` 重新框选并立即翻译、按 `Alt+m` 全屏翻译 → 小窗显示原文与译文。
+翻译结果会缓存，同一句话不会重复调用接口。
 
 热键见 `docs/v2-改动.md`，全部可在 `config.local.toml` 的 `[hotkeys]` 段修改。
 

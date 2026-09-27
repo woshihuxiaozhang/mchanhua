@@ -282,7 +282,7 @@ class Application:
         return region
 
     def perform_select_region(self) -> None:
-        """只框选并保存，不翻译（Ctrl+Alt+R）。"""
+        """只框选并保存，不翻译（默认 Alt+V）。"""
 
         if self._pick_and_save_region() is None:
             self.window.set_status("已取消框选")

@@ -19,7 +19,7 @@ if not exist "%PY%" (
 )
 
 echo Starting mchanhua ...
-echo Hotkeys: Ctrl+Alt+Q translate / Ctrl+Alt+R pick region / Ctrl+Alt+X quit
+echo Hotkeys: Ctrl+Alt translate saved region / Alt+/ pick and translate / Alt+m fullscreen
 echo Close this window to quit.
 echo Log file: tmp\mchanhua.log
 echo.
