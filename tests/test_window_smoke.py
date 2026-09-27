@@ -17,7 +17,11 @@ def _window():
         pytest.skip(f"没有可用的图形环境：{exc}")
 
 
-def test_window_shows_result_and_survives_update():
+def test_window_renders_results_and_dispatches_queue_messages():
+    """一个用例里只创建一次 Tk 根窗口：同一进程反复 Tk()/destroy() 在部分环境会报 TclError。"""
+
+    import queue
+
     window = _window()
     try:
         window.set_status("测试状态")
@@ -36,15 +40,6 @@ def test_window_shows_result_and_survives_update():
         assert "钢锭" in window.status.cget("text") or "OCR" in window.status.cget("text")
         window._clear()
         assert window.target.get("1.0", "end").strip() == ""
-    finally:
-        window.root.destroy()
-
-
-def test_window_drain_dispatches_messages():
-    import queue
-
-    window = _window()
-    try:
         messages: queue.Queue[tuple] = queue.Queue()
         messages.put(("status", "来自队列"))
         messages.put(("result", PipelineResult(source_lines=["a"], output_lines=["b"])))
