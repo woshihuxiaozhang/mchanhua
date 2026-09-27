@@ -12,13 +12,17 @@ from mchanhua.ui.contrast import audit
 
 # 默认浅色主题（自愈时用它覆盖被旧实例写坏的混搭配色）
 DEFAULT_LIGHT: dict[str, object] = {
-    "background": "#f5f6f8",
-    "panel": "#ffffff",
-    "text": "#17171b",
-    "text_dim": "#5f6470",
-    "accent": "#0a66ff",
-    "button_background": "#e8eaee",
-    "button_text": "#17171b",
+    "background": "#FFFFFF",
+    "panel": "#F7F6F3",
+    "border": "#EAEAEA",
+    "text": "#111111",
+    "text_dim": "#787774",
+    "accent": "#1F6C9F",
+    "accent_soft": "#E1F3FE",
+    "button_background": "#F7F6F3",
+    "button_text": "#111111",
+    "button_primary": "#111111",
+    "button_primary_text": "#FFFFFF",
     "opacity": 1.0,
 }
 
@@ -43,11 +47,15 @@ def heal_theme(config) -> list[str]:
 class Theme:
     background: str
     panel: str
+    border: str
     text: str
     text_dim: str
     accent: str
+    accent_soft: str
     button_background: str
     button_text: str
+    button_primary: str
+    button_primary_text: str
     font_family: str
     font_size: int
     source_font_size: int
@@ -66,11 +74,15 @@ class Theme:
         return cls(
             background=ui.background,
             panel=ui.panel,
+            border=getattr(ui, "border", "#EAEAEA"),
             text=ui.text,
             text_dim=ui.text_dim,
             accent=ui.accent,
+            accent_soft=getattr(ui, "accent_soft", "#E1F3FE"),
             button_background=ui.button_background,
             button_text=ui.button_text,
+            button_primary=getattr(ui, "button_primary", "#111111"),
+            button_primary_text=getattr(ui, "button_primary_text", "#FFFFFF"),
             font_family=family,
             font_size=max(8, int(ui.font_size)),
             source_font_size=max(8, int(ui.source_font_size)),

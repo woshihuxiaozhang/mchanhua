@@ -85,13 +85,17 @@ class UiConfig:
     always_on_top: bool = True
     position: str = "right"
     # ---- 主题（改这里就能换界面风格，不用动代码）----
-    background: str = "#ffffff"
-    panel: str = "#eef0f3"     # 浅灰面板，配合半透明更像"灰色透明"
-    text: str = "#17171b"
-    text_dim: str = "#5f6470"
-    accent: str = "#0a66ff"
-    button_background: str = "#e8eaee"
-    button_text: str = "#17171b"
+    background: str = "#FFFFFF"    # 画布：纯白
+    panel: str = "#F7F6F3"        # 面板：暖灰（配合半透明即"灰色透明"）
+    border: str = "#EAEAEA"       # 结构线：极浅灰
+    text: str = "#111111"         # 正文：off-black，不用纯黑
+    text_dim: str = "#787774"     # 次级：暖灰
+    accent: str = "#1F6C9F"       # 强调（文字/图标）
+    accent_soft: str = "#E1F3FE"  # 强调底色（淡蓝，用于标签）
+    button_background: str = "#F7F6F3"
+    button_text: str = "#111111"
+    button_primary: str = "#111111"       # 主按钮：实心深色 + 白字
+    button_primary_text: str = "#FFFFFF"
     source_font_size: int = 11
     result_font_size: int = 15
     line_height: float = 1.5          # 行高倍数（WCAG/排版规范建议正文 1.5 左右）
