@@ -20,6 +20,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mchanhua.geometry import Region, enable_dpi_awareness  # noqa: E402
+from mchanhua.console import configure_stdio  # noqa: E402
 from mchanhua.metrics import cer, similarity  # noqa: E402
 from mchanhua.ocr import create_engine  # noqa: E402
 
@@ -45,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--invert", action="store_true", help="反色后再识别（浅色文字深色底时可能更准）")
     args = parser.parse_args(argv)
 
+    configure_stdio()
     enable_dpi_awareness()
     expected = _load_expected(args)
     image = Image.open(args.image)

@@ -12,23 +12,11 @@ from PIL import Image
 from mchanhua import __version__
 from mchanhua.capture import create_grabber, grab_screen
 from mchanhua.config import Config, load_config, save_config
+from mchanhua.console import configure_stdio
 from mchanhua.geometry import Region, enable_dpi_awareness
 from mchanhua.ocr import create_engine
 from mchanhua.ocr import windows as windows_ocr
 from mchanhua.ocr.base import OcrUnavailable
-
-
-def configure_stdio() -> None:
-    """让中文在 Windows 控制台里正常输出（默认代码页是 GBK）。"""
-
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is None:
-            continue
-        try:
-            reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
 
 
 def _load_image(path: Path, region: Region | None) -> Image.Image:
