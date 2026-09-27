@@ -47,7 +47,8 @@ class CaptureConfig:
 class OcrConfig:
     backend: str = "auto"
     language: str = "auto"
-    upscale: float = 2.0
+    upscale: float = 1.0
+    invert: bool = False
 
 
 @dataclass
@@ -77,10 +78,12 @@ class RegionsConfig:
     """命名区域，坐标一律是物理像素。
 
     follow_cursor 表示"跟随光标"的相对区域：x/y 是相对光标的偏移，可取负值。
+    默认值以光标为中心取一块略大于物品提示框的区域，这样提示框画在光标左侧
+    还是右侧都能覆盖到。
     """
 
     fixed: dict[str, str] = field(default_factory=dict)
-    follow_cursor: str | None = None
+    follow_cursor: str | None = "-270,-20,560,400"
 
     def fixed_region(self, name: str) -> Region | None:
         raw = self.fixed.get(name)
@@ -220,4 +223,3 @@ def save_config(config: Config, path: Path | None = None) -> Path:
     tmp.write_text(dumps(config), encoding="utf-8")
     os.replace(tmp, target)
     return target
-

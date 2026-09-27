@@ -26,21 +26,23 @@ def create_engine(
 ) -> OcrEngine:
     """创建 OCR 引擎。
 
-    auto 表示优先用 Windows 自带 OCR（快、零依赖），不可用时退回 RapidOCR。
-    额外参数（例如 invert）会透传给具体后端。
+    auto 表示质量优先：能用 RapidOCR 就用它（实测在真实游戏文本上比系统 OCR 准得多），
+    没装再退回 Windows 自带 OCR。额外参数（例如 invert）会透传给具体后端。
     """
 
-    if backend in ("auto", "windows"):
-        try:
-            return WindowsOcr(language=language, upscale=upscale, **options)
-        except OcrUnavailable:
-            if backend == "windows":
-                raise
-    if backend in ("auto", "rapidocr"):
+    if backend == "auto":
         engine = RapidOcr(language=language, upscale=upscale, **options)
         if engine.ready:
             return engine
-        if backend == "rapidocr":
-            engine._ensure_engine()
-        raise OcrUnavailable("Windows OCR 不可用，且 RapidOCR 未安装")
+        return WindowsOcr(language=language, upscale=upscale, **options)
+    if backend == "windows":
+        try:
+            return WindowsOcr(language=language, upscale=upscale, **options)
+        except OcrUnavailable:
+            raise
+    if backend == "rapidocr":
+        engine = RapidOcr(language=language, upscale=upscale, **options)
+        if engine.ready:
+            return engine
+        engine._ensure_engine()
     raise OcrUnavailable(f"未知的 OCR 后端：{backend}")

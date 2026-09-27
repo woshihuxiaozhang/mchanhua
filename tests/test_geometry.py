@@ -1,6 +1,10 @@
 import pytest
-
-from mchanhua.geometry import Region
+from mchanhua.geometry import (
+    Region,
+    follow_cursor_region,
+    logical_to_physical,
+    normalize_drag,
+)
 
 
 def test_region_csv_round_trip():
@@ -49,3 +53,27 @@ def test_region_clamp_and_intersect():
         Region(5000, 5000, 100, 100).clamp(screen)
     assert Region.to_mss(Region(1, 2, 3, 4)) == {"left": 1, "top": 2, "width": 3, "height": 4}
 
+
+def test_follow_cursor_region_offsets_and_clamps():
+    screen = Region(0, 0, 2560, 1440)
+    offset = Region(-20, -10, 420, 320)
+    assert follow_cursor_region(offset, (1000, 800), screen).to_csv() == "980,790,420,320"
+    # 光标贴边时被裁到屏幕内
+    assert follow_cursor_region(offset, (10, 5), screen).to_csv() == "0,0,410,315"
+
+
+def test_logical_to_physical_handles_dpi_scale():
+    physical = Region(0, 0, 2560, 1440)
+    logical = Region(100, 100, 200, 100)
+    # 逻辑 2048x1152（125% 缩放）→ 物理 2560x1440
+    result = logical_to_physical(logical, (2048, 1152), physical)
+    assert result.to_csv() == "125,125,250,125"
+    with pytest.raises(ValueError):
+        logical_to_physical(logical, (0, 0), physical)
+
+
+def test_normalize_drag_supports_reverse_direction():
+    assert normalize_drag(300, 200, 100, 50).to_csv() == "100,50,200,150"
+    assert normalize_drag(100, 50, 300, 200).to_csv() == "100,50,200,150"
+    with pytest.raises(ValueError):
+        normalize_drag(100, 50, 100, 200)

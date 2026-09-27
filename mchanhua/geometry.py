@@ -145,3 +145,41 @@ def enable_dpi_awareness() -> str:
         pass
     return "unchanged"
 
+
+def follow_cursor_region(offset: Region, cursor: tuple[int, int], bounds: Region) -> Region:
+    """按"跟随光标"的相对区域算出实际采集区域。
+
+    offset 的 x/y 是相对光标的偏移（可为负），宽高是区域大小。
+    """
+
+    region = Region(cursor[0] + offset.x, cursor[1] + offset.y, offset.width, offset.height)
+    return region.clamp(bounds)
+
+
+def logical_to_physical(logical: Region, logical_size: tuple[int, int], physical: Region) -> Region:
+    """把逻辑坐标（Tk 窗口坐标）换算成物理像素坐标。
+
+    125% 缩放下两者相差 1.25 倍，框选必须做这个换算，否则采集区域会整体偏移。
+    """
+
+    if logical_size[0] <= 0 or logical_size[1] <= 0:
+        raise ValueError(f"逻辑尺寸非法：{logical_size}")
+    scale_x = physical.width / logical_size[0]
+    scale_y = physical.height / logical_size[1]
+    result = Region(
+        physical.x + round(logical.x * scale_x),
+        physical.y + round(logical.y * scale_y),
+        max(1, round(logical.width * scale_x)),
+        max(1, round(logical.height * scale_y)),
+    )
+    return result.clamp(physical)
+
+
+def normalize_drag(x0: int, y0: int, x1: int, y1: int) -> Region:
+    """把拖拽起止点转成区域，支持从任意方向拖。"""
+
+    left, right = sorted((x0, x1))
+    top, bottom = sorted((y0, y1))
+    if right == left or bottom == top:
+        raise ValueError("拖拽区域太小")
+    return Region(left, top, right - left, bottom - top)

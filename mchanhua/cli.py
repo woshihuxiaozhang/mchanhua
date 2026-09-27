@@ -87,6 +87,7 @@ def cmd_ocr_image(args: argparse.Namespace) -> int:
         args.backend or config.ocr.backend,
         config.ocr.language,
         args.upscale or config.ocr.upscale,
+        invert=config.ocr.invert,
     )
     result = engine.recognize(image)
     _print_result(result, args.json)
@@ -118,6 +119,7 @@ def cmd_ocr_screen(args: argparse.Namespace) -> int:
         args.backend or config.ocr.backend,
         config.ocr.language,
         args.upscale or config.ocr.upscale,
+        invert=config.ocr.invert,
     )
     result = engine.recognize(image)
     _print_result(result, args.json)
@@ -136,6 +138,19 @@ def cmd_config_path(args: argparse.Namespace) -> int:
     from mchanhua.config import default_config_path
 
     print(args.config or default_config_path())
+    return 0
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    from mchanhua.app import Application
+
+    enable_dpi_awareness()
+    config = load_config(args.config)
+    if args.region:
+        config.regions.fixed["tooltip"] = args.region
+    app = Application(config, use_hotkeys=not args.no_hotkeys)
+    print("小窗已启动。热键：取词翻译 / 框选区域 / 退出（见配置文件 [hotkeys]）")
+    app.start()
     return 0
 
 
@@ -169,6 +184,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_path = sub.add_parser("config-path", help="打印配置文件路径")
     config_path.set_defaults(func=cmd_config_path)
+
+    run = sub.add_parser("run", help="启动取词小窗（热键 + 框选）")
+    run.add_argument("-r", "--region", help="预先指定固定采集区域 x,y,w,h")
+    run.add_argument("--no-hotkeys", action="store_true", help="不注册全局热键（只点按钮）")
+    run.set_defaults(func=cmd_run)
     return parser
 
 

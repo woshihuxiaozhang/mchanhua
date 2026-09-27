@@ -1,0 +1,201 @@
+"""结果显示小窗。
+
+设计目标：不覆盖游戏画面，只在旁边显示译文；置顶、半透明、可拖动。
+"""
+
+from __future__ import annotations
+
+import queue
+import tkinter as tk
+from dataclasses import dataclass
+from tkinter import font as tkfont
+from typing import Callable
+
+from mchanhua.config import Config
+from mchanhua.pipeline import PipelineResult
+
+
+def resolve_position(config, screen_size: tuple[int, int]) -> tuple[int, int]:
+    """根据配置算出窗口左上角坐标（逻辑坐标）。"""
+
+    screen_w, screen_h = screen_size
+    margin = 24
+    if config.position == "left":
+        return (margin, margin)
+    if config.position == "right":
+        return (max(0, screen_w - config.width - margin), margin)
+    if config.position == "bottom-right":
+        return (
+            max(0, screen_w - config.width - margin),
+            max(0, screen_h - config.height - margin),
+        )
+    if config.position == "bottom-left":
+        return (margin, max(0, screen_h - config.height - margin))
+    return (margin, margin)
+
+
+@dataclass
+class WindowCallbacks:
+    on_translate: Callable[[], None] | None = None
+    on_select_region: Callable[[], None] | None = None
+    on_quit: Callable[[], None] | None = None
+
+
+class ResultWindow:
+    def __init__(self, config: Config, callbacks: WindowCallbacks | None = None) -> None:
+        self.config = config
+        self.callbacks = callbacks or WindowCallbacks()
+        self.root = tk.Tk()
+        self.root.title("mchanhua 取词翻译")
+        self.root.attributes("-topmost", bool(config.ui.always_on_top))
+        try:
+            self.root.attributes("-alpha", float(config.ui.opacity))
+        except tk.TclError:  # pragma: no cover - 少数平台不支持
+            pass
+
+        width, height = config.ui.width, config.ui.height
+        x, y = resolve_position(config.ui, (self.root.winfo_screenwidth(), self.root.winfo_screenheight()))
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        self.root.minsize(320, 220)
+        self.root.configure(bg="#1b1b1f")
+
+        family = config.ui.font_family
+        if family not in tkfont.families():
+            family = "Microsoft YaHei"
+        self.target_font = tkfont.Font(family=family, size=config.ui.font_size + 2)
+        self.source_font = tkfont.Font(family=family, size=max(8, config.ui.font_size - 2))
+
+        self.status = tk.Label(
+            self.root,
+            text="就绪：把鼠标移到物品上，按热键取词",
+            anchor="w",
+            bg="#1b1b1f",
+            fg="#9ad0ff",
+            font=self.source_font,
+            padx=8,
+            pady=4,
+        )
+        self.status.pack(fill="x")
+
+        body = tk.Frame(self.root, bg="#1b1b1f")
+        body.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+
+        self.target = tk.Text(
+            body,
+            wrap="word",
+            font=self.target_font,
+            bg="#101014",
+            fg="#f2f2f2",
+            insertbackground="#f2f2f2",
+            relief="flat",
+            padx=8,
+            pady=6,
+        )
+        self.target.pack(fill="both", expand=True)
+
+        self.source = tk.Text(
+            body,
+            height=4,
+            wrap="word",
+            font=self.source_font,
+            bg="#101014",
+            fg="#8a8f98",
+            relief="flat",
+            padx=8,
+            pady=4,
+        )
+        self.source.pack(fill="x", pady=(6, 0))
+
+        bar = tk.Frame(self.root, bg="#1b1b1f")
+        bar.pack(fill="x", padx=8, pady=(0, 8))
+        for text, command in (
+            ("重新取词", self._translate),
+            ("框选区域", self._select_region),
+            ("清空", self._clear),
+            ("退出", self._quit),
+        ):
+            tk.Button(bar, text=text, command=command, font=self.source_font).pack(side="left", padx=(0, 6))
+
+        for widget in (self.status, body):
+            widget.bind("<Button-1>", self._start_drag)
+            widget.bind("<B1-Motion>", self._drag)
+        self._drag_origin: tuple[int, int] | None = None
+
+    # ---- 拖动窗口 ----
+    def _start_drag(self, event) -> None:
+        self._drag_origin = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
+
+    def _drag(self, event) -> None:
+        if self._drag_origin is None:
+            return
+        self.root.geometry(f"+{event.x_root - self._drag_origin[0]}+{event.y_root - self._drag_origin[1]}")
+
+    # ---- 按钮 ----
+    def _translate(self) -> None:
+        if self.callbacks.on_translate:
+            self.callbacks.on_translate()
+
+    def _select_region(self) -> None:
+        if self.callbacks.on_select_region:
+            self.callbacks.on_select_region()
+
+    def _clear(self) -> None:
+        self.target.delete("1.0", "end")
+        self.source.delete("1.0", "end")
+
+    def _quit(self) -> None:
+        if self.callbacks.on_quit:
+            self.callbacks.on_quit()
+
+    # ---- 显示 ----
+    def set_status(self, text: str) -> None:
+        self.status.configure(text=text)
+
+    def show_source(self, lines: list[str], elapsed_ms: float) -> None:
+        self.source.delete("1.0", "end")
+        self.source.insert("1.0", "\n".join(lines))
+        self.set_status(f"OCR 完成（{elapsed_ms:.0f} ms），正在翻译…")
+
+    def show_result(self, result: PipelineResult) -> None:
+        self.source.delete("1.0", "end")
+        self.source.insert("1.0", "\n".join(result.source_lines))
+        self.target.delete("1.0", "end")
+        self.target.insert("1.0", "\n".join(result.output_lines))
+        parts = [
+            f"OCR {result.ocr_ms:.0f} ms",
+            f"翻译 {result.translate_ms:.0f} ms",
+            f"已翻 {result.translated_count} 行",
+        ]
+        if result.warnings:
+            parts.append(f"提示：{result.warnings[0]}")
+        self.set_status(" | ".join(parts))
+
+    def drain(self, message_queue: "queue.Queue[tuple]") -> None:
+        """在主线程里消费后台线程的结果。"""
+
+        while True:
+            try:
+                message = message_queue.get_nowait()
+            except queue.Empty:
+                break
+            kind = message[0]
+            if kind == "status":
+                self.set_status(message[1])
+            elif kind == "ocr":
+                self.show_source(message[1], message[2])
+            elif kind == "result":
+                self.show_result(message[1])
+            elif kind == "translate":
+                self._translate()
+            elif kind == "select_region":
+                self._select_region()
+            elif kind == "quit":
+                self._quit()
+
+    def poll(self, message_queue: "queue.Queue[tuple]", interval_ms: int = 60) -> None:
+        self.drain(message_queue)
+        self.root.after(interval_ms, lambda: self.poll(message_queue, interval_ms))
+
+    def run(self) -> None:
+        self.root.mainloop()
+
