@@ -94,13 +94,13 @@ class Application:
 
     # ---- 热键回调（可能来自其它线程，只往队列里丢消息） ----
     def request_translate(self) -> None:
-        self.queue.put(("translate", None))
+        self.queue.put(("call", self.perform_translate))
 
     def request_select_region(self) -> None:
-        self.queue.put(("select_region", None))
+        self.queue.put(("call", self.perform_select_region))
 
     def quit(self) -> None:
-        self.queue.put(("quit", None))
+        self.queue.put(("call", self.window.root.destroy))
 
     # ---- 实际工作 ----
     def _current_region(self) -> Region | None:
@@ -118,7 +118,9 @@ class Application:
                 return self.last_region
         return self.last_region
 
-    def translate_once(self, region: Region | None = None) -> None:
+    def perform_translate(self, region: Region | None = None) -> None:
+        """在主线程里启动一次取词翻译（真正的活儿交给工作线程）。"""
+
         target = region if region is not None else self._current_region()
         self.window.set_status("正在采集并识别…")
         threading.Thread(target=self._worker, args=(target,), daemon=True).start()
@@ -156,7 +158,7 @@ class Application:
         if translator is None and self.translator_error:
             self.queue.put(("status", self.translator_error))
 
-    def select_region(self) -> None:
+    def perform_select_region(self) -> None:
         self.window.root.withdraw()
         try:
             region = pick_region(self.grabber.primary_monitor(), self.window.root)

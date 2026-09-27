@@ -41,6 +41,35 @@ class WindowCallbacks:
     on_quit: Callable[[], None] | None = None
 
 
+def drain_queue(message_queue: "queue.Queue[tuple]", sink, max_messages: int = 50) -> int:
+    """把队列里的消息交给 sink 处理，返回处理条数。
+
+    sink 需要实现 set_status / show_source / show_result；
+    带 "call" 的消息是"在界面线程执行一次的任务"。
+
+    这里刻意加上 max_messages 上限：万一某个任务又往队列里补消息，
+    drain 也不会陷进去出不来（曾经就是因为这个把 Tk 主线程卡死过）。
+    """
+
+    handled = 0
+    for _ in range(max_messages):
+        try:
+            message = message_queue.get_nowait()
+        except queue.Empty:
+            break
+        handled += 1
+        kind = message[0]
+        if kind == "status":
+            sink.set_status(message[1])
+        elif kind == "ocr":
+            sink.show_source(message[1], message[2])
+        elif kind == "result":
+            sink.show_result(message[1])
+        elif kind == "call":
+            message[1]()
+    return handled
+
+
 class ResultWindow:
     def __init__(self, config: Config, callbacks: WindowCallbacks | None = None) -> None:
         self.config = config
@@ -175,27 +204,15 @@ class ResultWindow:
             parts.append(f"提示：{result.warnings[0]}")
         self.set_status(" | ".join(parts))
 
-    def drain(self, message_queue: "queue.Queue[tuple]") -> None:
-        """在主线程里消费后台线程的结果。"""
+    def drain(self, message_queue: "queue.Queue[tuple]", max_messages: int = 50) -> int:
+        """在主线程里消费后台线程的消息。
 
-        while True:
-            try:
-                message = message_queue.get_nowait()
-            except queue.Empty:
-                break
-            kind = message[0]
-            if kind == "status":
-                self.set_status(message[1])
-            elif kind == "ocr":
-                self.show_source(message[1], message[2])
-            elif kind == "result":
-                self.show_result(message[1])
-            elif kind == "translate":
-                self._translate()
-            elif kind == "select_region":
-                self._select_region()
-            elif kind == "quit":
-                self._quit()
+        注意：这里只**执行**消息里的任务，绝不能再往同一个队列里补消息，
+        否则 drain 会自己喂自己、无限循环，把 Tk 主线程卡死。
+        max_messages 是额外的保险。
+        """
+
+        return drain_queue(message_queue, self, max_messages)
 
     def poll(self, message_queue: "queue.Queue[tuple]", interval_ms: int = 60) -> None:
         if self.heartbeat is not None:

@@ -4,6 +4,7 @@ import pytest
 
 from mchanhua.config import Config
 from mchanhua.pipeline import PipelineResult
+from mchanhua.ui.window import drain_queue
 
 tk = pytest.importorskip("tkinter")
 
@@ -50,3 +51,42 @@ def test_window_renders_results_and_dispatches_queue_messages():
         assert "OCR" in window.status.cget("text")
     finally:
         window.root.destroy()
+
+
+class _RecordingSink:
+    def __init__(self) -> None:
+        self.statuses: list[str] = []
+        self.sources: list[list[str]] = []
+        self.results: list[PipelineResult] = []
+
+    def set_status(self, text: str) -> None:
+        self.statuses.append(text)
+
+    def show_source(self, lines, elapsed_ms) -> None:
+        self.sources.append(list(lines))
+
+    def show_result(self, result: PipelineResult) -> None:
+        self.results.append(result)
+
+
+def test_drain_queue_executes_callables_and_is_bounded():
+    """回归测试：任务如果又往队列里补消息，drain 也必须返回（不能无限自喂）。"""
+
+    import queue
+
+    messages: queue.Queue[tuple] = queue.Queue()
+    sink = _RecordingSink()
+    executions: list[int] = []
+
+    def re_enqueue() -> None:
+        executions.append(1)
+        messages.put(("call", re_enqueue))  # 故意制造"自己喂自己"
+
+    messages.put(("status", "开始"))
+    messages.put(("call", re_enqueue))
+
+    handled = drain_queue(messages, sink, max_messages=10)
+
+    assert handled == 10          # 有上限，不会卡死
+    assert sink.statuses == ["开始"]
+    assert len(executions) == 9   # 其余配额被"自喂"的消息吃掉

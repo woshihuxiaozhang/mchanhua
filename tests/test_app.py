@@ -92,7 +92,7 @@ def test_worker_pushes_ocr_and_result_messages():
     )
     app.translator = DecodingTranslator()
 
-    app.translate_once(Region(100, 200, 400, 300))
+    app.perform_translate(Region(100, 200, 400, 300))
     messages = _wait_for(app, "result")
     assert any(message[0] == "ocr" for message in messages)
 
@@ -127,6 +127,22 @@ def test_capture_failure_is_reported():
         ocr=FakeOcr(),
         window=FakeWindow(),
     )
-    app.translate_once(Region(0, 0, 10, 10))
+    app.perform_translate(Region(0, 0, 10, 10))
     messages = _wait_for(app, "status")
     assert any(message[0] == "status" and "采集失败" in message[1] for message in messages)
+
+
+def test_request_translate_enqueues_one_shot_callable():
+    """回归：热键请求进队列的是"一次性任务"，不是可被 drain 再放一遍的消息类型。"""
+
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=FakeOcr(),
+        window=FakeWindow(),
+    )
+    app.request_translate()
+    kind, payload = app.queue.get_nowait()
+    assert kind == "call"
+    assert callable(payload)
