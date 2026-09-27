@@ -91,8 +91,14 @@ class Application:
         if self.translator is not None or self.translator_error is not None:
             return self.translator
         api_key = self.config.resolved_api_key
-        if not api_key:
-            self.translator_error = "未配置 DeepSeek API key，只显示 OCR 原文"
+        # 只有"需要 key 的服务"才因为缺 key 而停用；Ollama 这类本地服务不需要 key
+        from mchanhua.translate.providers import find_preset
+
+        preset = find_preset(self.config.translate.provider)
+        needs_key = preset.needs_key if preset is not None else True
+        if needs_key and not api_key:
+            label = preset.label if preset is not None else "翻译服务"
+            self.translator_error = f"未配置 {label} 的 API key，只显示 OCR 原文"
             get_logger().warning(self.translator_error)
             return None
         try:
