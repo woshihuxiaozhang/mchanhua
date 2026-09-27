@@ -1,0 +1,23 @@
+# Python 运行时与缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 构建产物
+build/
+dist/
+
+# 本地配置与密钥（翻译 API key 等不要入库）
+.env
+*.local.toml
+config.local.toml
+
+# 运行产物
+*.log
+/out/
+/tmp/
