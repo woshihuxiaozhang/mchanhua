@@ -42,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repeat", type=int, default=3, help="每个配置重复次数")
     parser.add_argument("--backend", default="auto")
     parser.add_argument("--language", default="auto")
+    parser.add_argument("--invert", action="store_true", help="反色后再识别（浅色文字深色底时可能更准）")
     args = parser.parse_args(argv)
 
     enable_dpi_awareness()
@@ -61,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
 
     best: tuple[float, float, str] | None = None
     for upscale in args.upscale:
-        engine = create_engine(args.backend, args.language, upscale)
+        engine = create_engine(args.backend, args.language, upscale, invert=args.invert)
         timings: list[float] = []
         text = ""
         for _ in range(max(1, args.repeat)):
@@ -89,4 +90,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -109,11 +109,12 @@ def _rect_region(rect: Any, scale: float) -> Region:
 class WindowsOcr:
     name = "windows"
 
-    def __init__(self, language: str = "auto", upscale: float = 1.0) -> None:
+    def __init__(self, language: str = "auto", upscale: float = 1.0, invert: bool = False) -> None:
         if upscale <= 0:
             raise ValueError(f"upscale 必须为正数：{upscale}")
         self.language_setting = language
         self.upscale = upscale
+        self.invert = invert
         self._engine = None
         self.language: str | None = None
 
@@ -151,6 +152,11 @@ class WindowsOcr:
             )
         else:
             target = image
+
+        if self.invert:
+            from PIL import ImageOps
+
+            target = ImageOps.invert(target.convert("RGB"))
 
         bitmap = _to_software_bitmap(target)
         started = time.perf_counter()

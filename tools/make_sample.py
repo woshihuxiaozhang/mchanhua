@@ -14,11 +14,12 @@ import sys
 import zipfile
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 FONT_ENTRY = "assets/minecraft/textures/font/ascii.png"
+UNICODE_PAGE_ENTRY = "assets/minecraft/textures/font/unicode_page_{page:02x}.png"
 ASCII_CHARS = [chr(code) for code in range(0x20, 0x7F)]
 SHADOW_DIVISOR = 4
 
@@ -49,6 +50,35 @@ def load_font_sheet(jars: list[Path]) -> tuple[Image.Image, Path]:
     raise SystemExit(
         f"没有在这些 jar 中找到 {FONT_ENTRY}：\n" + "\n".join(str(j) for j in jars)
     )
+
+
+def load_unicode_page(jars: list[Path], page: int = 0) -> tuple[Image.Image, Path]:
+    """读取 Minecraft 的 Unifont 字形页（forceUnicodeFont:true 时游戏用的就是它）。"""
+
+    entry = UNICODE_PAGE_ENTRY.format(page=page)
+    for jar in jars:
+        try:
+            with zipfile.ZipFile(jar) as archive:
+                if entry in archive.namelist():
+                    data = archive.read(entry)
+                    return Image.open(io.BytesIO(data)).convert("RGBA"), jar
+        except (zipfile.BadZipFile, OSError):
+            continue
+    raise SystemExit(f"没有找到 {entry}")
+
+
+def unicode_glyphs(page_image: Image.Image, first: int = 0x20, last: int = 0x7F) -> dict[str, Image.Image]:
+    """Unifont 页是 16x16 个 16x16 像素的字形格。"""
+
+    cell = page_image.width // 16
+    glyphs: dict[str, Image.Image] = {}
+    for code in range(first, last + 1):
+        index = code & 0xFF
+        col, row = index % 16, index // 16
+        box = (col * cell, row * cell, (col + 1) * cell, (row + 1) * cell)
+        if box[2] <= page_image.width and box[3] <= page_image.height:
+            glyphs[chr(code)] = page_image.crop(box)
+    return glyphs
 
 
 def split_glyphs(sheet: Image.Image) -> dict[str, Image.Image]:
@@ -137,10 +167,42 @@ def render(lines: list[tuple[str, tuple[int, int, int]]], glyphs: dict[str, Imag
     return image.convert("RGB")
 
 
+def render_ttf(lines: list[tuple[str, tuple[int, int, int]]], font_path: Path, size: int) -> Image.Image:
+    """用 TTF 渲染（模拟把游戏字体换成防锯齿 TTF 的资源包）。"""
+
+    if not font_path.exists():
+        raise SystemExit(f"找不到 TTF 字体：{font_path}")
+    font = ImageFont.truetype(str(font_path), size)
+    padding_x, padding_y, line_height = 4, 3, size + 2
+    widest = max((int(font.getlength(text)) for text, _ in lines), default=0)
+
+    width = widest + padding_x * 2 + 4
+    height = len(lines) * line_height + padding_y * 2 + 2
+    image = Image.new("RGBA", (width, height), (16, 0, 16, 255))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([0, 0, width - 1, height - 1], outline=(80, 0, 255, 255))
+
+    y = padding_y
+    for text, color in lines:
+        shadow = tuple(max(0, channel // SHADOW_DIVISOR) for channel in color)
+        draw.text((padding_x + 1, y + 1), text, font=font, fill=shadow + (255,))
+        draw.text((padding_x, y), text, font=font, fill=color + (255,))
+        y += line_height
+    return image.convert("RGB")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="生成 Minecraft 风格样例截图")
     parser.add_argument("--minecraft-dir", default=str(DEFAULT_MINECRAFT_DIR))
     parser.add_argument("--out", default="tmp/mc_sample.png")
+    parser.add_argument(
+        "--font",
+        choices=("ascii", "unicode", "ttf"),
+        default="ascii",
+        help="ascii 是默认位图字体；unicode 对应 forceUnicodeFont:true；ttf 模拟把游戏字体换成防锯齿 TTF 资源包",
+    )
+    parser.add_argument("--ttf", default="C:/Windows/Fonts/consola.ttf", help="ttf 字体文件路径")
+    parser.add_argument("--ttf-size", type=int, default=12, help="ttf 字号（游戏里再按 GUI 缩放放大）")
     parser.add_argument(
         "--gui-scale",
         type=int,
@@ -153,9 +215,6 @@ def main(argv: list[str] | None = None) -> int:
     jars = find_client_jars(Path(args.minecraft_dir))
     if not jars:
         raise SystemExit(f"没找到客户端 jar，请检查 --minecraft-dir：{args.minecraft_dir}")
-    sheet, jar = load_font_sheet(jars)
-    print(f"字体来源：{jar}")
-    print(f"字体纹理：{sheet.width}x{sheet.height}")
 
     lines = [
         ("Steel Ingot", WHITE),
@@ -164,7 +223,20 @@ def main(argv: list[str] | None = None) -> int:
         ("Durability 1234 / 1234", GREEN),
         ("Requires level 30", YELLOW),
     ]
-    image = render(lines, split_glyphs(sheet))
+
+    if args.font == "ttf":
+        image = render_ttf(lines, Path(args.ttf), args.ttf_size)
+        print(f"字体来源：{args.ttf}（{args.ttf_size}px TTF，模拟字体资源包）")
+    else:
+        if args.font == "unicode":
+            sheet, jar = load_unicode_page(jars, 0)
+            glyphs = unicode_glyphs(sheet)
+        else:
+            sheet, jar = load_font_sheet(jars)
+            glyphs = split_glyphs(sheet)
+        print(f"字体来源：{jar}")
+        print(f"字体纹理：{sheet.width}x{sheet.height}（{args.font}）")
+        image = render(lines, glyphs)
 
     if args.gui_scale > 1:
         image = image.resize(
