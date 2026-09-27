@@ -138,20 +138,23 @@ def test_fullscreen_line_cap():
     assert FULLSCREEN_MAX_LINES > 0
 
 
-def test_select_and_translate_uses_the_new_region(workdir: Path, monkeypatch):
-    """Alt+/：框选完立即翻译该选区，并把选区保存下来。"""
+def test_select_and_translate_uses_new_region_without_saving(workdir: Path, monkeypatch):
+    """Alt+/：用新框的选区翻译，但**不保存**，避免覆盖 Alt+V 设定的选区。"""
 
     app = _app(workdir)
     app.translator = DecodingTranslator()
+    app.config.regions.set_custom_region(Region(1, 2, 3, 4))   # 已有 Alt+V 设定的选区
     monkeypatch.setattr("mchanhua.app.pick_region", lambda monitor, parent: Region(50, 60, 400, 300))
 
     app.perform_select_and_translate()
     messages = wait_for(app, "result")
 
+    # 默认 screen 模式：整屏识别，按本次框的选区筛选
     assert app.grabber.requests[-1].to_csv() == "0,0,2560,1440"
-    assert app.config.regions.custom_region().to_csv() == "50,60,400,300"
-    assert 'custom = "50,60,400,300"' in Path(app.config_path).read_text(encoding="utf-8")
     assert any(message[0] == "result" for message in messages)
+    # 原来的自定义选区不受影响，配置文件里也不会写入这次临时选区
+    assert app.config.regions.custom_region().to_csv() == "1,2,3,4"
+    assert "50,60,400,300" not in Path(app.config_path).read_text(encoding="utf-8")
 
 
 def test_select_and_translate_cancel_does_not_translate(workdir: Path, monkeypatch):

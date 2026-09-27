@@ -14,7 +14,7 @@ from mchanhua.config import CUSTOM_REGION_KEY, Config, save_config
 from mchanhua.debugdump import dump_last_run
 from mchanhua.diagnostics import UiWatchdog, make_dump_all_threads
 from mchanhua.geometry import Region, enable_dpi_awareness, follow_cursor_region
-from mchanhua.hotkey import HotkeyManager
+from mchanhua.hotkey import HotkeyManager, reset_pressed_state
 from mchanhua.logging_setup import fault_stream, get_logger
 from mchanhua.ocr import create_engine
 from mchanhua.pipeline import run_from_ocr
@@ -108,21 +108,26 @@ class Application:
 
     # ---- 热键回调（可能来自其它线程，只往队列里丢消息） ----
     def request_translate(self) -> None:
+        get_logger().info("热键触发：翻译自定义选区")
         self.queue.put(("call", self.perform_translate))
 
     def request_translate_region(self) -> None:
+        get_logger().info("热键触发：框选并翻译")
         self.queue.put(("call", self.perform_select_and_translate))
 
     def request_translate_fullscreen(self) -> None:
+        get_logger().info("热键触发：全屏翻译")
         self.queue.put(("call", self.perform_translate_fullscreen))
 
     def request_translate_clipboard(self) -> None:
+        get_logger().info("热键触发：翻译剪贴板图片")
         self.queue.put(("call", self.perform_translate_clipboard))
 
     def request_open_image(self) -> None:
         self.queue.put(("call", self.perform_open_image))
 
     def request_select_region(self) -> None:
+        get_logger().info("热键触发：只框选选区")
         self.queue.put(("call", self.perform_select_region))
 
     def quit(self) -> None:
@@ -302,11 +307,7 @@ class Application:
     def _pick_and_save_region(self) -> Region | None:
         """弹出框选并保存为自定义选区；取消时返回 None。"""
 
-        self.window.root.withdraw()
-        try:
-            region = pick_region(self.grabber.primary_monitor(), self.window.root)
-        finally:
-            self.window.root.deiconify()
+        region = self._pick_region()
         if region is None:
             return None
         self.last_region = region
@@ -324,13 +325,25 @@ class Application:
             self.window.set_status("已取消框选")
 
     def perform_select_and_translate(self) -> None:
-        """框选后立即翻译该选区（Alt+/）。"""
+        """框选后立即翻译该选区（Alt+/）。**不保存**选区，避免覆盖 Alt+V 设定的区域。"""
 
-        region = self._pick_and_save_region()
+        region = self._pick_region()
         if region is None:
             self.window.set_status("已取消框选")
             return
         self.perform_translate(region)
+
+    def _pick_region(self) -> Region | None:
+        """只弹出框选，不做任何持久化（供 Alt+/ 临时取词使用）。"""
+
+        self.window.root.withdraw()
+        try:
+            return pick_region(self.grabber.primary_monitor(), self.window.root)
+        finally:
+            self.window.root.deiconify()
+            cleared = reset_pressed_state()
+            if cleared:
+                get_logger().info("框选结束后清理了 %d 个残留按键状态", cleared)
 
     def _save_config(self) -> bool:
         """把当前配置（含自定义选区）写回配置文件。"""

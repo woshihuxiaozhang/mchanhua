@@ -36,6 +36,32 @@ def is_modifier_only(hotkey: str) -> bool:
     return bool(parts) and all(part in MODIFIERS for part in parts)
 
 
+def reset_pressed_state() -> int:
+    """清掉 keyboard 库记录的"当前按下的键"，返回清掉的个数。
+
+    该库用「当前按下的键的精确集合」匹配热键（`tuple(sorted(_pressed_events))`）。
+    弹窗抢焦点、窗口切换时容易丢掉某个键的 key-up，集合里就会残留一个键，
+    于是 Ctrl+Alt 这类组合再也匹配不上，必须松开重按——这就是"要按两次"的原因。
+    """
+
+    try:
+        import keyboard
+    except ImportError:  # pragma: no cover - 依赖缺失时才走到
+        return 0
+
+    pressed = getattr(keyboard, "_pressed_events", None)
+    lock = getattr(keyboard, "_pressed_events_lock", None)
+    if pressed is None:
+        return 0
+    count = len(pressed)
+    if lock is not None:
+        with lock:
+            pressed.clear()
+    else:  # pragma: no cover
+        pressed.clear()
+    return count
+
+
 class HotkeyManager:
     """注册全局热键；keyboard 库缺失或注册失败时给出可读的错误。"""
 
