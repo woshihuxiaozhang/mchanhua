@@ -120,6 +120,9 @@ class ResultWindow:
 
         self._build_chrome()
         self._build_body()
+        self.action_bars: list = []
+        self.collapsed = False
+        self._expanded_geometry = f"{theme.width}x{theme.height}"
         self._build_actions()
         self._drag_origin: tuple[int, int] | None = None
         self.compare_mode = False
@@ -156,6 +159,12 @@ class ResultWindow:
                 fg_color="transparent", hover_color=theme.panel,
                 text_color=theme.text_dim, font=self.meta_font, command=command,
             ).pack(side="right", padx=2)
+        self.collapse_button = ctk.CTkButton(
+            bar, text="折叠", width=44, height=24, corner_radius=6, font=self.meta_font,
+            fg_color="transparent", hover_color=self.theme.panel,
+            text_color=self.theme.text_dim, command=self.toggle_collapsed,
+        )
+        self.collapse_button.pack(side="right", padx=2)
         for widget in (bar, mark, title):
             widget.bind("<Button-1>", self._start_drag)
             widget.bind("<B1-Motion>", self._drag)
@@ -234,6 +243,7 @@ class ResultWindow:
         for row in rows:
             bar = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
             bar.pack(fill="x", padx=theme.padding, pady=(0, 6))
+            self.action_bars.append(bar)
             for text, command, primary in row:
                 ctk.CTkButton(
                     bar, text=text, height=28, corner_radius=6, font=self.meta_font,
@@ -260,6 +270,25 @@ class ResultWindow:
 
     def _minimize(self) -> None:
         self.root.iconify()
+
+    def toggle_collapsed(self) -> None:
+        """折叠：只保留标题栏与译文（隐藏原文与按钮），再点展开。"""
+
+        self.collapsed = not self.collapsed
+        if self.collapsed:
+            self.source_area.pack_forget()
+            for bar in self.action_bars:
+                bar.pack_forget()
+            self.root.geometry(f"{self.theme.width}x118")
+            self.collapse_button.configure(text="展开")
+            self.set_status("已折叠（只显示译文）")
+        else:
+            self.source_area.pack(fill="x", padx=6, pady=(0, 6))
+            for bar in self.action_bars:
+                bar.pack(fill="x", padx=self.theme.padding, pady=(0, 6))
+            self.root.geometry(self._expanded_geometry)
+            self.collapse_button.configure(text="折叠")
+            self.set_status("已展开（译文在上、原文在下）")
 
     # ---- 按钮回调 ----
     def _call(self, name: str) -> None:

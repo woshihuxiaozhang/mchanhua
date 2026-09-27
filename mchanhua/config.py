@@ -77,16 +77,16 @@ class TranslateConfig:
 
 @dataclass
 class UiConfig:
-    width: int = 460
-    height: int = 320
+    width: int = 430
+    height: int = 235          # 紧凑：只放译文与原文
     font_family: str = "Microsoft YaHei UI"
     font_size: int = 13
-    opacity: float = 1.0      # 默认完全不透明；0.92 在 CustomTkinter 窗口上会出现透视与残影
+    opacity: float = 0.90     # 灰色半透明背景（1.0 即完全不透明）
     always_on_top: bool = True
     position: str = "right"
     # ---- 主题（改这里就能换界面风格，不用动代码）----
-    background: str = "#f5f6f8"
-    panel: str = "#ffffff"
+    background: str = "#ffffff"
+    panel: str = "#eef0f3"     # 浅灰面板，配合半透明更像"灰色透明"
     text: str = "#17171b"
     text_dim: str = "#5f6470"
     accent: str = "#0a66ff"
