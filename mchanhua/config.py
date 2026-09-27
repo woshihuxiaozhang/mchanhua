@@ -83,7 +83,7 @@ class RegionsConfig:
     """
 
     fixed: dict[str, str] = field(default_factory=dict)
-    follow_cursor: str | None = "-270,-20,560,400"
+    follow_cursor: str | None = "-280,-20,560,440"
 
     def fixed_region(self, name: str) -> Region | None:
         raw = self.fixed.get(name)
