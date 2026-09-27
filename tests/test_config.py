@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from mchanhua.config import (
@@ -13,22 +11,22 @@ from mchanhua.config import (
 )
 
 
-def test_defaults_when_file_missing(tmp_path: Path):
-    config = load_config(tmp_path / "missing.toml")
+def test_defaults_when_file_missing(workdir):
+    config = load_config(workdir / "missing.toml")
     assert config.ocr.backend == "auto"
     assert config.translate.model == "deepseek-chat"
     assert config.hotkeys.translate == "ctrl+alt+q"
     assert config.resolved_api_key == ""
 
 
-def test_round_trip_preserves_tricky_strings(tmp_path: Path):
+def test_round_trip_preserves_tricky_strings(workdir):
     config = Config()
     config.glossary = {"Redstone": "红石", "quote": 'he said "hi"', "path": r"C:\temp\new"}
     config.regions.fixed = {"tooltip": "100,200,400,300"}
     config.regions.follow_cursor = "-20,-10,420,320"
     config.translate.api_key = "sk-test\nline"
 
-    path = save_config(config, tmp_path / "config.toml")
+    path = save_config(config, workdir / "config.toml")
     loaded = load_config(path)
 
     assert loaded.glossary == config.glossary
@@ -83,4 +81,3 @@ def test_default_config_path_points_outside_repo():
     path = default_config_path()
     assert path.name == "config.toml"
     assert path.parent.name == "mchanhua"
-

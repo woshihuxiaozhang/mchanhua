@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 from PIL import Image
 
@@ -61,11 +59,10 @@ def test_grab_screen_raises_on_size_mismatch():
         grab_screen(grabber, Region(0, 0, 100, 100))
 
 
-def test_screenshot_fixture_round_trip(tmp_path: Path):
+def test_screenshot_fixture_round_trip(workdir):
     """确认保存/读取截图这条链路（后面做回归对比要用）。"""
 
-    path = tmp_path / "shot.png"
+    path = workdir / "shot.png"
     Image.new("RGB", (64, 48), (12, 34, 56)).save(path)
     reopened = Image.open(path)
     assert reopened.size == (64, 48)
-
