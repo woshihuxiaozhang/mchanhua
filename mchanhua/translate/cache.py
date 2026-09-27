@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import threading
 from pathlib import Path
 
 
@@ -19,7 +20,10 @@ class TranslationCache:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._connection = sqlite3.connect(self.path)
+        # 每次取词都在新的工作线程里跑，sqlite 连接会被不同线程用到：
+        # 关掉默认的线程检查，并用自己的锁把访问串行化。
+        self._connection = sqlite3.connect(self.path, check_same_thread=False)
+        self._lock = threading.Lock()
         self._connection.execute(
             """
             CREATE TABLE IF NOT EXISTS translations (
@@ -35,29 +39,32 @@ class TranslationCache:
         self._connection.commit()
 
     def get(self, source: str, model: str, prompt_version: str) -> str | None:
-        row = self._connection.execute(
-            "SELECT target FROM translations WHERE key = ?",
-            (cache_key(source, model, prompt_version),),
-        ).fetchone()
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT target FROM translations WHERE key = ?",
+                (cache_key(source, model, prompt_version),),
+            ).fetchone()
         return row[0] if row else None
 
     def put(self, source: str, target: str, model: str, prompt_version: str) -> None:
-        self._connection.execute(
-            "INSERT OR REPLACE INTO translations (key, source, target, model, prompt_version)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (cache_key(source, model, prompt_version), source, target, model, prompt_version),
-        )
-        self._connection.commit()
+        with self._lock:
+            self._connection.execute(
+                "INSERT OR REPLACE INTO translations (key, source, target, model, prompt_version)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (cache_key(source, model, prompt_version), source, target, model, prompt_version),
+            )
+            self._connection.commit()
 
     def count(self) -> int:
-        return int(self._connection.execute("SELECT COUNT(*) FROM translations").fetchone()[0])
+        with self._lock:
+            return int(self._connection.execute("SELECT COUNT(*) FROM translations").fetchone()[0])
 
     def close(self) -> None:
-        self._connection.close()
+        with self._lock:
+            self._connection.close()
 
     def __enter__(self) -> "TranslationCache":
         return self
 
     def __exit__(self, *exc_info: object) -> None:
         self.close()
-

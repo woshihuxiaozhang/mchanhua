@@ -63,6 +63,7 @@ class Application:
         )
         self.heartbeat_interval = 2 if diagnose else 10
         self.beat_count = 0
+        self._translate_lock = threading.Lock()
         logger.info(
             "初始化完成：采集后端 %s，OCR 后端 %s，标定区域 %s，跟随光标区域 %s",
             self.grabber.name,
@@ -121,9 +122,17 @@ class Application:
     def perform_translate(self, region: Region | None = None) -> None:
         """在主线程里启动一次取词翻译（真正的活儿交给工作线程）。"""
 
+        if not self._translate_lock.acquire(blocking=False):
+            self.window.set_status("上一次取词还在处理中，请稍等…")
+            get_logger().info("上一次取词尚未结束，忽略这次请求")
+            return
         target = region if region is not None else self._current_region()
         self.window.set_status("正在采集并识别…")
-        threading.Thread(target=self._worker, args=(target,), daemon=True).start()
+        try:
+            threading.Thread(target=self._worker, args=(target,), daemon=True).start()
+        except Exception:
+            self._translate_lock.release()
+            raise
 
     def _worker(self, region: Region | None) -> None:
         try:
@@ -132,31 +141,33 @@ class Application:
             get_logger().exception("采集失败")
             self.queue.put(("status", f"采集失败：{exc}"))
             return
-
-        translator = self._ensure_translator()
         try:
-            result = run_pipeline(
-                image,
-                self.ocr,
-                translator,
-                on_ocr=lambda lines, ms: self.queue.put(("ocr", lines, ms)),
-            )
-        except Exception as exc:
-            get_logger().exception("处理失败")
-            self.queue.put(("status", f"处理失败：{exc}"))
-            return
+            translator = self._ensure_translator()
+            try:
+                result = run_pipeline(
+                    image,
+                    self.ocr,
+                    translator,
+                    on_ocr=lambda lines, ms: self.queue.put(("ocr", lines, ms)),
+                )
+            except Exception as exc:
+                get_logger().exception("处理失败")
+                self.queue.put(("status", f"处理失败：{exc}"))
+                return
 
-        get_logger().info(
-            "完成：区域 %s，识别 %d 行，翻译 %d 行，OCR %.0f ms，翻译 %.0f ms",
-            region,
-            len(result.source_lines),
-            result.translated_count,
-            result.ocr_ms,
-            result.translate_ms,
-        )
-        self.queue.put(("result", result))
-        if translator is None and self.translator_error:
-            self.queue.put(("status", self.translator_error))
+            get_logger().info(
+                "完成：区域 %s，识别 %d 行，翻译 %d 行，OCR %.0f ms，翻译 %.0f ms",
+                region,
+                len(result.source_lines),
+                result.translated_count,
+                result.ocr_ms,
+                result.translate_ms,
+            )
+            self.queue.put(("result", result))
+            if translator is None and self.translator_error:
+                self.queue.put(("status", self.translator_error))
+        finally:
+            self._translate_lock.release()
 
     def perform_select_region(self) -> None:
         self.window.root.withdraw()
