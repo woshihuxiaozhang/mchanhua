@@ -65,6 +65,39 @@ def test_missing_lines_are_retried_with_ocr_correction():
     assert any("再问一次" in warning for warning in translator.warnings)
 
 
+def test_output_order_is_correct_even_if_model_returns_shuffled_lines():
+    """回归：模型把行序打乱返回时，输出必须仍按输入顺序排列。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        content = json.dumps(
+            {
+                "lines": [
+                    {"i": 2, "src": "third", "dst": "第三"},
+                    {"i": 0, "src": "first", "dst": "第一"},
+                    {"i": 1, "src": "second", "dst": "第二"},
+                ]
+            },
+            ensure_ascii=False,
+        )
+        return httpx.Response(200, json=_chat_response(content))
+
+    translator = DeepSeekTranslator(api_key="sk-test", client=_client(handler))
+    assert translator.translate_lines(["first", "second", "third"]) == ["第一", "第二", "第三"]
+    assert translator.warnings == []
+
+
+def test_mismatched_src_is_reported_but_line_index_wins():
+    def handler(request: httpx.Request) -> httpx.Response:
+        content = json.dumps(
+            {"lines": [{"i": 0, "src": "完全不是这一行", "dst": "第一"}]}, ensure_ascii=False
+        )
+        return httpx.Response(200, json=_chat_response(content))
+
+    translator = DeepSeekTranslator(api_key="sk-test", client=_client(handler))
+    assert translator.translate_lines(["first line"]) == ["第一"]
+    assert any("对不上" in warning for warning in translator.warnings)
+
+
 def test_source_is_kept_when_retry_also_returns_source():
     def handler(request: httpx.Request) -> httpx.Response:
         content = json.dumps({"lines": [{"i": 0, "dst": "HACHIHERY"}]})

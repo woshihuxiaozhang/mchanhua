@@ -16,23 +16,33 @@ from mchanhua.translate.placeholders import (
     strip_leftover_sentinels,
 )
 
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
 
-SYSTEM_PROMPT = """你是 Minecraft 模组与整合包的中英翻译译者，负责把游戏界面文本翻译成简体中文。
+SYSTEM_PROMPT = """你是 Minecraft 模组与整合包的汉化译者，负责把游戏里的英文翻译成简体中文。
 
-严格遵守以下规则：
-1. 输入是若干行独立文本，逐行翻译，**输出行数与输入完全一致**，不合并、不拆分、不增删行、不添加解释。
-2. 只输出一个 JSON 对象，格式为：{"lines": [{"i": 0, "dst": "译文"}, ...]}，其中 i 是输入行号（从 0 开始）。
-3. 文本中的哨兵字符（\\ue000数字\\ue001）代表格式占位符（颜色码、%s 之类），必须原样保留在译文对应位置，不得翻译、删除或改动。
-4. 已经是中文、或没有实际词义的文本（纯数字、纯符号），把原文原样放进 dst。
-5. 使用 Minecraft 中文社区的通行译法，保持简洁，不要加句号之外的额外标点。
-6. **输入来自屏幕 OCR，可能有个别字符识别错误**（例如 l/I、o/0、w/u、rn/m 混淆，下划线丢失）。
-   遇到明显是识别错误的英文单词时，请按最接近的常见英文单词理解并翻译（例如 "Suitch" 应理解为 "Switch"），
-   不要原样返回；只有确定是无法翻译的标识符（命令、代码、玩家 ID）才保留原文。
+【语气与风格】（很重要）
+- 译成**口语化、自然**的中文，像真人在说话，不要翻译腔、不要书面语、不要逐字硬译。
+- **保留原句的情绪**：惊讶、紧张、警告、嘲讽、催促、感慨、恐惧都要译出来。
+- 该用语气词就用（啊、吧、呢、喂、该死、天哪），该用感叹/疑问标点就用（！？……）。
+- NPC 台词要短促有力；物品名、技能名保持简洁专业。
 
-译文风格示例：
+【格式规则】（必须严格遵守）
+1. 输入是若干行文本，逐行翻译；**输出行数与输入完全一致、顺序一致**，不合并、不拆分、不增删、不加解释。
+2. 只输出一个 JSON 对象：{"lines": [{"i": 0, "src": "原行", "dst": "译文"}, ...]}。
+   i 是输入行号（从 0 开始），**必须与输入的序号一一对应**；src 原样抄回该行输入，用于核对。
+3. 文本里的哨兵字符（\\ue000数字\\ue001）代表格式占位符（颜色码、%s 之类），必须原样保留在译文对应位置，不得翻译、删除或改动。
+4. 已经是中文的行、没有实际词义的文本（纯数字、纯符号），把原文原样放进 dst。
+5. **输入来自屏幕 OCR，可能有个别字符被认错**（l/I、o/0、w/u、rn/m 混淆，下划线丢失）。
+   遇到明显是识别错误的单词，按最接近的常见英文词理解并翻译，不要原样返回英文；
+   只有确定是人名、玩家 ID、命令或代码时才保留原文。
+6. 使用 Minecraft 中文社区的通行译法。
+
+【风格示例】
 - "Durability" → "耐久"
 - "Right-click to place" → "右键放置"
+- "You shouldn't be here." → "你不该来这儿的。"
+- "No way through, unless I stop that leak." → "该死，不把那个漏点堵上就过不去。"
+- "What the hell is that?!" → "这到底是什么鬼东西？！"
 - "You are one step closer to salvation." → "你离获救又近了一步。"
 """
 
@@ -67,6 +77,12 @@ def _strip_code_fence(text: str) -> str:
         stripped = re.sub(r"^```[a-zA-Z]*\s*", "", stripped)
         stripped = re.sub(r"```$", "", stripped).strip()
     return stripped
+
+
+def _normalize_for_check(text: str) -> str:
+    """核对 src 用的宽松比较：忽略大小写与空白差异。"""
+
+    return " ".join(text.split()).casefold()
 
 
 def build_system_prompt(glossary: dict[str, str] | None) -> str:
@@ -183,6 +199,7 @@ class DeepSeekTranslator:
 
         result = list(sources)
         seen: set[int] = set()
+        mismatched: list[int] = []
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -192,6 +209,11 @@ class DeepSeekTranslator:
                 continue
             if not 0 <= index < len(sources):
                 continue
+            declared = item.get("src")
+            if isinstance(declared, str) and declared.strip():
+                # 行号是主键；src 只用于核对，对不上就记警告（防止模型把行错位）
+                if _normalize_for_check(declared) != _normalize_for_check(sources[index]):
+                    mismatched.append(index)
             result[index] = strip_leftover_sentinels(restore(target, tables[index]))
             seen.add(index)
             lost = missing_tokens(target, tables[index])
@@ -201,4 +223,6 @@ class DeepSeekTranslator:
         missing = [i for i in range(len(sources)) if i not in seen]
         if missing:
             self.warnings.append(f"模型漏翻 {len(missing)} 行，已保留原文：{missing[:5]}")
+        if mismatched:
+            self.warnings.append(f"{len(mismatched)} 行的原文与行号对不上（已按行号对齐）：{mismatched[:5]}")
         return result
