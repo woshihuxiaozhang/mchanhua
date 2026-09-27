@@ -83,7 +83,11 @@ def cmd_ocr_image(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     region = Region.parse(args.region) if args.region else None
     image = _load_image(Path(args.image), region)
-    engine = create_engine(config.ocr.backend, config.ocr.language, args.upscale or config.ocr.upscale)
+    engine = create_engine(
+        args.backend or config.ocr.backend,
+        config.ocr.language,
+        args.upscale or config.ocr.upscale,
+    )
     result = engine.recognize(image)
     _print_result(result, args.json)
     return 0
@@ -110,7 +114,11 @@ def cmd_ocr_screen(args: argparse.Namespace) -> int:
         image.save(target)
         print(f"截图已保存：{target}（{image.width}x{image.height}）")
 
-    engine = create_engine(config.ocr.backend, config.ocr.language, args.upscale or config.ocr.upscale)
+    engine = create_engine(
+        args.backend or config.ocr.backend,
+        config.ocr.language,
+        args.upscale or config.ocr.upscale,
+    )
     result = engine.recognize(image)
     _print_result(result, args.json)
     grabber.close()
@@ -143,6 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     ocr_image.add_argument("image")
     ocr_image.add_argument("-r", "--region", help="只处理图片中的 x,y,w,h 区域")
     ocr_image.add_argument("--upscale", type=float, help="识别前放大倍数，默认取配置值")
+    ocr_image.add_argument("--backend", choices=("auto", "windows", "rapidocr"), help="OCR 后端，默认取配置值")
     ocr_image.add_argument("--json", action="store_true", help="输出 JSON")
     ocr_image.set_defaults(func=cmd_ocr_image)
 
@@ -150,6 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     ocr_screen.add_argument("-r", "--region", help="截取区域 x,y,w,h，缺省为整屏")
     ocr_screen.add_argument("-n", "--name", help="使用配置里的命名区域")
     ocr_screen.add_argument("--upscale", type=float, help="识别前放大倍数，默认取配置值")
+    ocr_screen.add_argument("--backend", choices=("auto", "windows", "rapidocr"), help="OCR 后端，默认取配置值")
     ocr_screen.add_argument("--save", help="把截图保存到指定路径，便于排查")
     ocr_screen.add_argument("--json", action="store_true", help="输出 JSON")
     ocr_screen.set_defaults(func=cmd_ocr_screen)

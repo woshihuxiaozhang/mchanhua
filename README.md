@@ -17,7 +17,8 @@ D:\Tools\Miniconda3\python.exe -m venv .venv
 - [x] 区域模型与 DPI 感知（物理像素坐标，避免 125% 缩放导致的偏移）
 - [x] 配置文件读写（默认在 `%APPDATA%\mchanhua\config.toml`，仓库外）
 - [x] 屏幕采集（mss 后端，Pillow 兜底）
-- [x] Windows 自带 OCR 后端
+- [x] OCR 后端两个：Windows 自带 OCR、RapidOCR
+- [x] OCR 精度测量工具与结论文档（见 `docs/ocr-findings.md`）
 - [ ] DeepSeek 翻译与缓存
 - [ ] 小窗界面、全局热键、框选区域
 
@@ -32,6 +33,9 @@ D:\Tools\Miniconda3\python.exe -m venv .venv
 
 # 截取屏幕区域并 OCR，同时把截图存下来
 .\.venv\Scripts\python.exe -m mchanhua ocr-screen -r 100,200,600,400 --save tmp/shot.png
+
+# 指定 OCR 后端（RapidOCR 在真实游戏文本上明显更准）
+.\.venv\Scripts\python.exe -m mchanhua ocr-image shot.png --backend rapidocr
 
 # 生成默认配置文件
 .\.venv\Scripts\python.exe -m mchanhua config-init
