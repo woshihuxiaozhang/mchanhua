@@ -9,7 +9,7 @@ from pathlib import Path
 from PIL import Image
 
 from mchanhua.capture import create_grabber, grab_clipboard_image, grab_screen
-from mchanhua.config import Config
+from mchanhua.config import CUSTOM_REGION_KEY, Config, save_config
 from mchanhua.diagnostics import UiWatchdog, make_dump_all_threads
 from mchanhua.geometry import Region, enable_dpi_awareness, follow_cursor_region
 from mchanhua.hotkey import HotkeyManager
@@ -20,12 +20,16 @@ from mchanhua.translate import TranslationError, create_translator
 from mchanhua.ui.region_picker import pick_region
 from mchanhua.ui.window import ResultWindow, WindowCallbacks
 
+# 全屏翻译时最多翻译多少行（整屏识别出来的行可能很多，这里限制成本与噪音）
+FULLSCREEN_MAX_LINES = 60
+
 
 class Application:
     def __init__(
         self,
         config: Config,
         cache_path: Path | None = None,
+        config_path: Path | None = None,
         use_hotkeys: bool = True,
         grabber=None,
         ocr=None,
@@ -35,6 +39,7 @@ class Application:
         enable_dpi_awareness()
         logger = get_logger()
         self.config = config
+        self.config_path = config_path or config.loaded_from
         self.use_hotkeys = use_hotkeys
         logger.info("步骤 1/3：创建采集后端")
         self.grabber = grabber or create_grabber(config.capture.backend, config.capture.monitor)
@@ -52,6 +57,7 @@ class Application:
             config,
             WindowCallbacks(
                 on_translate=self.request_translate,
+                on_translate_fullscreen=self.request_translate_fullscreen,
                 on_open_image=self.request_open_image,
                 on_select_region=self.request_select_region,
                 on_quit=self.quit,
@@ -100,6 +106,12 @@ class Application:
     def request_translate(self) -> None:
         self.queue.put(("call", self.perform_translate))
 
+    def request_translate_region(self) -> None:
+        self.queue.put(("call", self.perform_translate))
+
+    def request_translate_fullscreen(self) -> None:
+        self.queue.put(("call", self.perform_translate_fullscreen))
+
     def request_translate_clipboard(self) -> None:
         self.queue.put(("call", self.perform_translate_clipboard))
 
@@ -114,9 +126,15 @@ class Application:
 
     # ---- 实际工作 ----
     def _current_region(self) -> Region | None:
-        """按配置决定采集区域：跟随光标的相对区域优先，其次上次框选的区域。"""
+        """采集区域优先级：已保存的自定义选区 > 跟随光标 > 上次框选的区域。"""
 
         monitor = self.grabber.primary_monitor()
+        custom = self.config.regions.custom_region()
+        if custom is not None:
+            try:
+                return custom.clamp(monitor)
+            except ValueError:
+                get_logger().warning("保存的自定义选区 %s 超出当前屏幕 %s，已忽略", custom, monitor)
         if self.config.regions.follow_cursor:
             offset = Region.parse(self.config.regions.follow_cursor)
             cursor = self.window.root.winfo_pointerxy()
@@ -139,6 +157,24 @@ class Application:
         self.window.set_status("正在采集并识别…")
         try:
             threading.Thread(target=self._worker, args=(target, None), daemon=True).start()
+        except Exception:
+            self._translate_lock.release()
+            raise
+
+    def perform_translate_fullscreen(self) -> None:
+        """全屏翻译：整屏识别后翻译，行数超过上限时只翻前若干行。"""
+
+        if not self._translate_lock.acquire(blocking=False):
+            self.window.set_status("上一次取词还在处理中，请稍等…")
+            return
+        monitor = self.grabber.primary_monitor()
+        self.window.set_status(f"正在全屏识别（{monitor.width}x{monitor.height}）…")
+        try:
+            threading.Thread(
+                target=self._worker,
+                args=(None, None, FULLSCREEN_MAX_LINES),
+                daemon=True,
+            ).start()
         except Exception:
             self._translate_lock.release()
             raise
@@ -189,7 +225,7 @@ class Application:
         self.window.set_status(f"正在识别图片：{path.name}")
         threading.Thread(target=self._worker, args=(None, image), daemon=True).start()
 
-    def _worker(self, region: Region | None, image=None) -> None:
+    def _worker(self, region: Region | None, image=None, max_lines: int | None = None) -> None:
         if image is None:
             try:
                 image = grab_screen(self.grabber, region)
@@ -205,6 +241,7 @@ class Application:
                     self.ocr,
                     translator,
                     on_ocr=lambda lines, ms: self.queue.put(("ocr", lines, ms)),
+                    max_lines=max_lines,
                 )
             except Exception as exc:
                 get_logger().exception("处理失败")
@@ -235,7 +272,29 @@ class Application:
             self.window.set_status("已取消框选")
             return
         self.last_region = region
-        self.window.set_status(f"已选定区域 {region.to_csv()}")
+        self.config.regions.set_custom_region(region)
+        if self._save_config():
+            self.window.set_status(f"已保存自定义选区 {region.to_csv()}，之后取词都用它")
+        else:
+            self.window.set_status(f"已应用选区 {region.to_csv()}（写入配置文件失败，重启后不保留）")
+
+    def _save_config(self) -> bool:
+        """把当前配置（含自定义选区）写回配置文件。"""
+
+        if self.config_path is None:
+            get_logger().warning("没有配置文件路径，无法保存自定义选区")
+            return False
+        try:
+            save_config(self.config, self.config_path)
+            get_logger().info(
+                "配置已保存：%s（自定义选区 %s）",
+                self.config_path,
+                self.config.regions.fixed.get(CUSTOM_REGION_KEY),
+            )
+            return True
+        except Exception:
+            get_logger().exception("保存配置失败")
+            return False
 
     # ---- 启动 ----
     def start(self) -> None:
@@ -277,6 +336,8 @@ class Application:
         registered = 0
         for action, hotkey, callback in (
             ("取词翻译", bindings.translate, self.request_translate),
+            ("翻译自定义选区", bindings.translate_region, self.request_translate_region),
+            ("全屏翻译", bindings.translate_fullscreen, self.request_translate_fullscreen),
             ("翻译剪贴板图片", bindings.translate_clipboard, self.request_translate_clipboard),
             ("框选区域", bindings.select_region, self.request_select_region),
             ("退出", bindings.quit, self.quit),

@@ -34,14 +34,20 @@ def run_pipeline(
     ocr: OcrEngine,
     translator: Translator | None = None,
     on_ocr: Callable[[list[str], float], None] | None = None,
+    max_lines: int | None = None,
 ) -> PipelineResult:
     """对一张图片做 OCR（可选再翻译）。
 
     on_ocr 让界面能在 OCR 完成时先显示原文，不必等翻译返回。
+    max_lines 用于全屏模式：识别出来的行太多时只翻译前若干行，避免成本失控。
     """
 
     ocr_result = ocr.recognize(image)
     source_lines = [line.text for line in ocr_result.lines]
+    truncated = 0
+    if max_lines is not None and len(source_lines) > max_lines:
+        truncated = len(source_lines) - max_lines
+        source_lines = source_lines[:max_lines]
     if on_ocr is not None:
         on_ocr(source_lines, ocr_result.elapsed_ms)
 
@@ -51,6 +57,10 @@ def run_pipeline(
         ocr_ms=ocr_result.elapsed_ms,
         ocr_backend=ocr_result.backend,
     )
+    if truncated:
+        result.warnings.append(
+            f"全屏共识别 {len(ocr_result.lines)} 行，只翻译前 {max_lines} 行（已跳过 {truncated} 行）"
+        )
     if translator is None or not source_lines:
         return result
 
@@ -81,4 +91,3 @@ def render_pairs(result: PipelineResult) -> str:
         else:
             blocks.append(f"{target}\n{source}")
     return "\n\n".join(blocks)
-

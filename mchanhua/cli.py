@@ -224,12 +224,18 @@ def cmd_config_path(args: argparse.Namespace) -> int:
 
 def cmd_run(args: argparse.Namespace) -> int:
     from mchanhua.app import Application
+    from mchanhua.config import resolve_config_path
 
     enable_dpi_awareness()
     config = load_config(args.config)
     if args.region:
         config.regions.fixed["tooltip"] = args.region
-    app = Application(config, use_hotkeys=not args.no_hotkeys, diagnose=args.diagnose)
+    app = Application(
+        config,
+        config_path=resolve_config_path(args.config),
+        use_hotkeys=not args.no_hotkeys,
+        diagnose=args.diagnose,
+    )
     print("小窗已启动。热键：取词翻译 / 框选区域 / 退出（见配置文件 [hotkeys]）")
     print(f"日志文件：{LOG_PATH}")
     get_logger().info("启动界面：配置 %r，OCR 后端 %s", args.config, config.ocr.backend)

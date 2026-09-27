@@ -39,6 +39,8 @@ def project_config_path(project_dir: Path | None = None) -> Path:
 @dataclass
 class HotkeysConfig:
     translate: str = "ctrl+alt+q"
+    translate_region: str = "alt+/"
+    translate_fullscreen: str = "alt+m"
     translate_clipboard: str = "ctrl+alt+s"
     select_region: str = "ctrl+alt+r"
     toggle_window: str = "ctrl+alt+w"
@@ -97,6 +99,17 @@ class RegionsConfig:
         raw = self.fixed.get(name)
         return Region.parse(raw) if raw else None
 
+    def custom_region(self) -> Region | None:
+        """用户框选并保存下来的自定义选区（v2 的主用选区）。"""
+
+        return self.fixed_region(CUSTOM_REGION_KEY)
+
+    def set_custom_region(self, region: Region) -> None:
+        self.fixed[CUSTOM_REGION_KEY] = region.to_csv()
+
+
+CUSTOM_REGION_KEY = "custom"
+
 
 @dataclass
 class Config:
@@ -107,6 +120,7 @@ class Config:
     ui: UiConfig = field(default_factory=UiConfig)
     regions: RegionsConfig = field(default_factory=RegionsConfig)
     glossary: dict[str, str] = field(default_factory=dict)
+    loaded_from: Path | None = field(default=None, compare=False)
 
     @property
     def resolved_api_key(self) -> str:
@@ -196,8 +210,11 @@ def load_config(path: Path | None = None, project_dir: Path | None = None) -> Co
     if not target.exists():
         config = Config()
         config.validate()
+        config.loaded_from = target
         return config
-    return loads(target.read_text(encoding="utf-8"))
+    config = loads(target.read_text(encoding="utf-8"))
+    config.loaded_from = target
+    return config
 
 
 def _dump_scalar(value: Any) -> str:
@@ -236,7 +253,8 @@ def dumps(config: Config) -> str:
 
 
 def save_config(config: Config, path: Path | None = None) -> Path:
-    target = path or default_config_path()
+    # 与 load_config 保持一致：显式路径 > 本次加载的来源 > 默认路径
+    target = Path(path) if path else (config.loaded_from or resolve_config_path())
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".tmp")
     tmp.write_text(dumps(config), encoding="utf-8")

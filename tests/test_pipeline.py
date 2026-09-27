@@ -90,3 +90,13 @@ def test_render_pairs_skips_unchanged_lines():
     assert "可以放在：" in rendered
     assert rendered.count("可以放在：") == 1
 
+
+def test_max_lines_truncates_and_warns():
+    ocr = FakeOcr([f"line {i}" for i in range(10)])
+    translator = FakeTranslator()
+
+    result = run_pipeline(_image(), ocr, translator, max_lines=4)
+
+    assert len(result.source_lines) == 4
+    assert len(translator.calls[0]) == 4
+    assert any("只翻译前 4 行" in warning for warning in result.warnings)

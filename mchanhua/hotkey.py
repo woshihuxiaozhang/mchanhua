@@ -7,7 +7,13 @@ from typing import Callable
 
 from mchanhua.logging_setup import get_logger
 
-TOKEN_PATTERN = re.compile(r"^(ctrl|alt|shift|windows|cmd|tab|space|enter|esc|[a-z0-9]|f\d{1,2})$")
+# 符号键（/ \ ; ' , . [ ] = - `）逐一转义后放进字符类，
+# 避免 "-" 在类里意外形成范围（曾导致 alt+/ 被判为非法按键）
+SYMBOL_KEYS = "/\\;',.[]=-`"
+_SYMBOL_CLASS = "".join(re.escape(char) for char in SYMBOL_KEYS)
+TOKEN_PATTERN = re.compile(
+    rf"^(ctrl|alt|shift|windows|cmd|tab|space|enter|esc|[a-z0-9]|f\d{{1,2}}|[{_SYMBOL_CLASS}])$"
+)
 MODIFIERS = {"ctrl", "alt", "shift", "windows", "cmd"}
 
 

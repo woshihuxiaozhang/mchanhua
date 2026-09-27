@@ -20,3 +20,8 @@ def test_modifier_only_hotkey_is_allowed_and_flagged():
     assert is_modifier_only("ctrl+alt")
     assert not is_modifier_only("ctrl+alt+q")
     assert not is_modifier_only("f8")
+
+
+def test_symbol_keys_are_accepted():
+    for good in ("alt+/", "alt+m", "ctrl+shift+/", "alt+\\", "ctrl+alt+.", "alt+-"):
+        assert normalize_hotkey(good) == good

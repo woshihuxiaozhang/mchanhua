@@ -37,6 +37,7 @@ def resolve_position(config, screen_size: tuple[int, int]) -> tuple[int, int]:
 @dataclass
 class WindowCallbacks:
     on_translate: Callable[[], None] | None = None
+    on_translate_fullscreen: Callable[[], None] | None = None
     on_open_image: Callable[[], None] | None = None
     on_select_region: Callable[[], None] | None = None
     on_quit: Callable[[], None] | None = None
@@ -109,8 +110,11 @@ class ResultWindow:
         body = tk.Frame(self.root, bg="#1b1b1f")
         body.pack(fill="both", expand=True, padx=8, pady=(0, 4))
 
+        target_area = tk.Frame(body, bg="#1b1b1f")
+        target_area.pack(fill="both", expand=True)
+
         self.target = tk.Text(
-            body,
+            target_area,
             wrap="word",
             font=self.target_font,
             bg="#101014",
@@ -120,7 +124,10 @@ class ResultWindow:
             padx=8,
             pady=6,
         )
-        self.target.pack(fill="both", expand=True)
+        scrollbar = tk.Scrollbar(target_area, command=self.target.yview)
+        self.target.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        self.target.pack(side="left", fill="both", expand=True)
 
         self.source = tk.Text(
             body,
@@ -135,16 +142,15 @@ class ResultWindow:
         )
         self.source.pack(fill="x", pady=(6, 0))
 
-        bar = tk.Frame(self.root, bg="#1b1b1f")
-        bar.pack(fill="x", padx=8, pady=(0, 8))
-        for text, command in (
-            ("重新取词", self._translate),
-            ("打开图片", self._open_image),
-            ("框选区域", self._select_region),
-            ("清空", self._clear),
-            ("退出", self._quit),
-        ):
-            tk.Button(bar, text=text, command=command, font=self.source_font).pack(side="left", padx=(0, 6))
+        button_rows = (
+            (("翻译选区", self._translate), ("全屏翻译", self._translate_fullscreen), ("框选选区", self._select_region)),
+            (("打开图片", self._open_image), ("清空", self._clear), ("退出", self._quit)),
+        )
+        for row in button_rows:
+            bar = tk.Frame(self.root, bg="#1b1b1f")
+            bar.pack(fill="x", padx=8, pady=(0, 6))
+            for text, command in row:
+                tk.Button(bar, text=text, command=command, font=self.source_font).pack(side="left", padx=(0, 6))
 
         for widget in (self.status, body):
             widget.bind("<Button-1>", self._start_drag)
@@ -174,6 +180,10 @@ class ResultWindow:
     def _select_region(self) -> None:
         if self.callbacks.on_select_region:
             self.callbacks.on_select_region()
+
+    def _translate_fullscreen(self) -> None:
+        if self.callbacks.on_translate_fullscreen:
+            self.callbacks.on_translate_fullscreen()
 
     def _open_image(self) -> None:
         if self.callbacks.on_open_image:

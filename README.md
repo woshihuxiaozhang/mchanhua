@@ -28,13 +28,14 @@ D:\Tools\Miniconda3\python.exe -m venv .venv
 # 1) 生成配置文件，然后把 DeepSeek API key 填进 [translate] api_key
 .\.venv\Scripts\python.exe -m mchanhua config-init
 
-# 2) 启动小窗（默认热键：Ctrl+Alt+Q 取词翻译 / Ctrl+Alt+R 框选区域 / Ctrl+Alt+X 退出）
+# 2) 启动小窗
 .\.venv\Scripts\python.exe -m mchanhua run
 ```
 
-使用流程：把鼠标移到游戏里的物品上 → 按 `Ctrl+Alt+Q` → 小窗显示原文与译文。
-默认按"光标周围的区域"取词，如果提示框位置特殊，按 `Ctrl+Alt+R` 拖拽框选一次，
-之后一直用这个区域。翻译结果会缓存，同一句话不会重复调用接口。
+使用流程：按 `Ctrl+Alt+R` 框选一次取词区域（会保存到配置文件）→ 之后按 `Alt+/` 翻译该区域、
+按 `Alt+m` 全屏翻译 → 小窗显示原文与译文。翻译结果会缓存，同一句话不会重复调用接口。
+
+热键见 `docs/v2-改动.md`，全部可在 `config.local.toml` 的 `[hotkeys]` 段修改。
 
 ## 命令行
 

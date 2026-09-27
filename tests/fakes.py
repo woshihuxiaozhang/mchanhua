@@ -53,6 +53,7 @@ class DecodingTranslator:
 class FakeWindow:
     def __init__(self) -> None:
         self.statuses: list[str] = []
+        self.root = FakeTkRoot()
 
     def set_status(self, text: str) -> None:
         self.statuses.append(text)
@@ -68,6 +69,32 @@ class FakeWindow:
 
     def run(self) -> None:  # pragma: no cover
         pass
+
+
+class FakeTkRoot:
+    """最小化的 Tk root 替身：控制器会用到指针位置、屏幕尺寸与窗口显隐。"""
+
+    def __init__(self) -> None:
+        self.withdrawn = 0
+        self.destroyed = False
+
+    def withdraw(self) -> None:
+        self.withdrawn += 1
+
+    def deiconify(self) -> None:
+        pass
+
+    def destroy(self) -> None:
+        self.destroyed = True
+
+    def winfo_pointerxy(self) -> tuple[int, int]:
+        return (1024, 576)          # 逻辑坐标（对应物理 1280,720）
+
+    def winfo_screenwidth(self) -> int:
+        return 2048
+
+    def winfo_screenheight(self) -> int:
+        return 1152
 
 
 def wait_for(app, kind: str, timeout: float = 10.0) -> list[tuple]:

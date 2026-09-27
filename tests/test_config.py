@@ -11,6 +11,7 @@ from mchanhua.config import (
     resolve_config_path,
     save_config,
 )
+from mchanhua.geometry import Region
 
 
 def test_defaults_when_file_missing(workdir):
@@ -103,3 +104,18 @@ def test_explicit_path_wins(workdir):
     save_config(Config(), explicit)
     save_config(Config(), project_config_path(workdir))
     assert resolve_config_path(explicit, workdir) == explicit
+
+
+def test_save_config_defaults_to_loaded_source(workdir, monkeypatch):
+    """不给路径保存时应写回原文件，而不是 %APPDATA%（曾经写错地方）。"""
+
+    monkeypatch.setenv("APPDATA", str(workdir / "appdata"))
+    path = save_config(Config(), workdir / "config.local.toml")
+    loaded = load_config(path)
+    assert loaded.loaded_from == path
+
+    loaded.regions.set_custom_region(Region.parse("1,2,3,4"))
+    returned = save_config(loaded)
+    assert returned == path
+    assert "1,2,3,4" in path.read_text(encoding="utf-8")
+    assert not (workdir / "appdata" / "mchanhua" / "config.toml").exists()
