@@ -81,7 +81,7 @@ class UiConfig:
     height: int = 320
     font_family: str = "Microsoft YaHei UI"
     font_size: int = 13
-    opacity: float = 0.92
+    opacity: float = 1.0      # 默认完全不透明；0.92 在 CustomTkinter 窗口上会出现透视与残影
     always_on_top: bool = True
     position: str = "right"
     # ---- 主题（改这里就能换界面风格，不用动代码）----

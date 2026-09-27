@@ -126,6 +126,8 @@ class ResultWindow:
 
     # ---- 外观 ----
     def _apply_alpha(self) -> None:
+        if self.theme.opacity >= 0.999:
+            return          # 1.0 时不设置 alpha，避免半透明带来的透视与残影
         try:
             self.root.attributes("-alpha", float(self.theme.opacity))
         except tk.TclError:  # pragma: no cover
