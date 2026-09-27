@@ -14,6 +14,7 @@ from mchanhua.capture import create_grabber, grab_screen
 from mchanhua.config import Config, load_config, save_config
 from mchanhua.console import configure_stdio
 from mchanhua.geometry import Region, enable_dpi_awareness
+from mchanhua.logging_setup import get_logger, setup_logging
 from mchanhua.ocr import create_engine
 from mchanhua.ocr import windows as windows_ocr
 from mchanhua.ocr.base import OcrUnavailable
@@ -198,8 +199,13 @@ def cmd_run(args: argparse.Namespace) -> int:
         config.regions.fixed["tooltip"] = args.region
     app = Application(config, use_hotkeys=not args.no_hotkeys)
     print("小窗已启动。热键：取词翻译 / 框选区域 / 退出（见配置文件 [hotkeys]）")
+    print(f"日志文件：{LOG_PATH}")
+    get_logger().info("启动界面：配置 %r，OCR 后端 %s", args.config, config.ocr.backend)
     app.start()
     return 0
+
+
+LOG_PATH: Path | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -254,11 +260,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global LOG_PATH
     configure_stdio()
+    LOG_PATH = setup_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
+    get_logger().info("命令：%s", " ".join(argv) if argv else "(无参数)")
     try:
         return args.func(args)
     except OcrUnavailable as exc:
+        get_logger().error("OCR 不可用：%s", exc)
         print(f"OCR 不可用：{exc}", file=sys.stderr)
         return 3
+    except Exception:
+        get_logger().exception("命令执行失败")
+        raise

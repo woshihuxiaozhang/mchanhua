@@ -10,6 +10,7 @@ from mchanhua.capture import create_grabber, grab_screen
 from mchanhua.config import Config
 from mchanhua.geometry import Region, enable_dpi_awareness, follow_cursor_region
 from mchanhua.hotkey import HotkeyManager
+from mchanhua.logging_setup import get_logger
 from mchanhua.ocr import create_engine
 from mchanhua.pipeline import run_pipeline
 from mchanhua.translate import TranslationError, create_translator
@@ -48,6 +49,13 @@ class Application:
             ),
         )
         self.last_region: Region | None = config.regions.fixed_region("tooltip")
+        get_logger().info(
+            "初始化完成：采集后端 %s，OCR 后端 %s，标定区域 %s，跟随光标区域 %s",
+            self.grabber.name,
+            getattr(self.ocr, "name", "?"),
+            self.last_region,
+            config.regions.follow_cursor,
+        )
 
     # ---- 翻译器 ----
     def _ensure_translator(self):
@@ -56,6 +64,7 @@ class Application:
         api_key = self.config.resolved_api_key
         if not api_key:
             self.translator_error = "未配置 DeepSeek API key，只显示 OCR 原文"
+            get_logger().warning(self.translator_error)
             return None
         try:
             self.translator = create_translator(
@@ -66,6 +75,7 @@ class Application:
             )
         except TranslationError as exc:
             self.translator_error = str(exc)
+            get_logger().error("创建翻译器失败：%s", exc)
         return self.translator
 
     # ---- 热键回调（可能来自其它线程，只往队列里丢消息） ----
@@ -103,6 +113,7 @@ class Application:
         try:
             image = grab_screen(self.grabber, region)
         except Exception as exc:
+            get_logger().exception("采集失败")
             self.queue.put(("status", f"采集失败：{exc}"))
             return
 
@@ -115,9 +126,18 @@ class Application:
                 on_ocr=lambda lines, ms: self.queue.put(("ocr", lines, ms)),
             )
         except Exception as exc:
+            get_logger().exception("处理失败")
             self.queue.put(("status", f"处理失败：{exc}"))
             return
 
+        get_logger().info(
+            "完成：区域 %s，识别 %d 行，翻译 %d 行，OCR %.0f ms，翻译 %.0f ms",
+            region,
+            len(result.source_lines),
+            result.translated_count,
+            result.ocr_ms,
+            result.translate_ms,
+        )
         self.queue.put(("result", result))
         if translator is None and self.translator_error:
             self.queue.put(("status", self.translator_error))
@@ -136,6 +156,7 @@ class Application:
 
     # ---- 启动 ----
     def start(self) -> None:
+        logger = get_logger()
         registered = 0
         if self.use_hotkeys:
             bindings = self.config.hotkeys
@@ -148,9 +169,17 @@ class Application:
                     self.hotkeys.register(action, hotkey, callback)
                     registered += 1
                 except RuntimeError as exc:
+                    logger.error("注册热键失败：%s", exc)
                     self.window.set_status(str(exc))
+        logger.info("热键注册完成：%d 个", registered)
+        self.window.root.report_callback_exception = self._on_tk_error
         self.window.set_status(f"就绪：{registered} 个热键已注册，把鼠标移到物品上按热键取词")
         self.window.poll(self.queue)
+        logger.info("进入界面主循环")
         self.window.run()
+        logger.info("界面退出")
         self.hotkeys.stop()
         self.grabber.close()
+
+    def _on_tk_error(self, exc_type, exc_value, exc_tb) -> None:
+        get_logger().error("界面回调异常", exc_info=(exc_type, exc_value, exc_tb))
