@@ -57,6 +57,7 @@ class Application:
             config,
             WindowCallbacks(
                 on_translate=self.request_translate,
+                on_select_and_translate=self.request_translate_region,
                 on_translate_fullscreen=self.request_translate_fullscreen,
                 on_open_image=self.request_open_image,
                 on_select_region=self.request_select_region,
@@ -107,7 +108,7 @@ class Application:
         self.queue.put(("call", self.perform_translate))
 
     def request_translate_region(self) -> None:
-        self.queue.put(("call", self.perform_translate))
+        self.queue.put(("call", self.perform_select_and_translate))
 
     def request_translate_fullscreen(self) -> None:
         self.queue.put(("call", self.perform_translate_fullscreen))
@@ -262,21 +263,38 @@ class Application:
         finally:
             self._translate_lock.release()
 
-    def perform_select_region(self) -> None:
+    def _pick_and_save_region(self) -> Region | None:
+        """弹出框选并保存为自定义选区；取消时返回 None。"""
+
         self.window.root.withdraw()
         try:
             region = pick_region(self.grabber.primary_monitor(), self.window.root)
         finally:
             self.window.root.deiconify()
         if region is None:
-            self.window.set_status("已取消框选")
-            return
+            return None
         self.last_region = region
         self.config.regions.set_custom_region(region)
         if self._save_config():
-            self.window.set_status(f"已保存自定义选区 {region.to_csv()}，之后取词都用它")
+            self.window.set_status(f"已保存自定义选区 {region.to_csv()}，按 Ctrl+Alt 即可翻译它")
         else:
             self.window.set_status(f"已应用选区 {region.to_csv()}（写入配置文件失败，重启后不保留）")
+        return region
+
+    def perform_select_region(self) -> None:
+        """只框选并保存，不翻译（Ctrl+Alt+R）。"""
+
+        if self._pick_and_save_region() is None:
+            self.window.set_status("已取消框选")
+
+    def perform_select_and_translate(self) -> None:
+        """框选后立即翻译该选区（Alt+/）。"""
+
+        region = self._pick_and_save_region()
+        if region is None:
+            self.window.set_status("已取消框选")
+            return
+        self.perform_translate(region)
 
     def _save_config(self) -> bool:
         """把当前配置（含自定义选区）写回配置文件。"""
@@ -335,11 +353,11 @@ class Application:
         bindings = self.config.hotkeys
         registered = 0
         for action, hotkey, callback in (
-            ("取词翻译", bindings.translate, self.request_translate),
-            ("翻译自定义选区", bindings.translate_region, self.request_translate_region),
+            ("翻译自定义选区", bindings.translate, self.request_translate),
+            ("框选并翻译", bindings.translate_region, self.request_translate_region),
             ("全屏翻译", bindings.translate_fullscreen, self.request_translate_fullscreen),
             ("翻译剪贴板图片", bindings.translate_clipboard, self.request_translate_clipboard),
-            ("框选区域", bindings.select_region, self.request_select_region),
+            ("只框选选区", bindings.select_region, self.request_select_region),
             ("退出", bindings.quit, self.quit),
         ):
             try:

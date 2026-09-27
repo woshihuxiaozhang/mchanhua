@@ -128,10 +128,52 @@ def test_hotkey_registration_covers_v2_actions(workdir: Path):
     app._register_hotkeys()
 
     registered = dict(app.hotkeys.bindings)
-    assert registered["翻译自定义选区"] == "alt+/"
+    assert registered["翻译自定义选区"] == app.config.hotkeys.translate
+    assert registered["框选并翻译"] == "alt+/"
     assert registered["全屏翻译"] == "alt+m"
     assert len(app.hotkeys.bindings) == 6
 
 
 def test_fullscreen_line_cap():
     assert FULLSCREEN_MAX_LINES > 0
+
+
+def test_select_and_translate_uses_the_new_region(workdir: Path, monkeypatch):
+    """Alt+/：框选完立即翻译该选区，并把选区保存下来。"""
+
+    app = _app(workdir)
+    app.translator = DecodingTranslator()
+    monkeypatch.setattr("mchanhua.app.pick_region", lambda monitor, parent: Region(50, 60, 400, 300))
+
+    app.perform_select_and_translate()
+    messages = wait_for(app, "result")
+
+    assert app.grabber.requests[-1].to_csv() == "50,60,400,300"
+    assert app.config.regions.custom_region().to_csv() == "50,60,400,300"
+    assert 'custom = "50,60,400,300"' in Path(app.config_path).read_text(encoding="utf-8")
+    assert any(message[0] == "result" for message in messages)
+
+
+def test_select_and_translate_cancel_does_not_translate(workdir: Path, monkeypatch):
+    app = _app(workdir)
+    monkeypatch.setattr("mchanhua.app.pick_region", lambda monitor, parent: None)
+
+    app.perform_select_and_translate()
+
+    assert app.grabber.requests == []
+    assert any("已取消框选" in status for status in app.window.statuses)
+
+
+def test_select_region_only_does_not_translate(workdir: Path, monkeypatch):
+    """Ctrl+Alt+R 只框选保存，不触发翻译；之后再按 Ctrl+Alt 才翻译。"""
+
+    app = _app(workdir)
+    monkeypatch.setattr("mchanhua.app.pick_region", lambda monitor, parent: Region(7, 8, 90, 100))
+
+    app.perform_select_region()
+    assert app.grabber.requests == []
+    assert app.config.regions.custom_region().to_csv() == "7,8,90,100"
+
+    app.perform_translate()          # 等价于按 Ctrl+Alt
+    wait_for(app, "result")
+    assert app.grabber.requests[-1].to_csv() == "7,8,90,100"

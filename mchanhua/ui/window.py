@@ -37,6 +37,7 @@ def resolve_position(config, screen_size: tuple[int, int]) -> tuple[int, int]:
 @dataclass
 class WindowCallbacks:
     on_translate: Callable[[], None] | None = None
+    on_select_and_translate: Callable[[], None] | None = None
     on_translate_fullscreen: Callable[[], None] | None = None
     on_open_image: Callable[[], None] | None = None
     on_select_region: Callable[[], None] | None = None
@@ -143,8 +144,8 @@ class ResultWindow:
         self.source.pack(fill="x", pady=(6, 0))
 
         button_rows = (
-            (("翻译选区", self._translate), ("全屏翻译", self._translate_fullscreen), ("框选选区", self._select_region)),
-            (("打开图片", self._open_image), ("清空", self._clear), ("退出", self._quit)),
+            (("翻译选区", self._translate), ("框选并翻译", self._select_and_translate), ("全屏翻译", self._translate_fullscreen)),
+            (("只框选", self._select_region), ("打开图片", self._open_image), ("清空", self._clear), ("退出", self._quit)),
         )
         for row in button_rows:
             bar = tk.Frame(self.root, bg="#1b1b1f")
@@ -184,6 +185,10 @@ class ResultWindow:
     def _translate_fullscreen(self) -> None:
         if self.callbacks.on_translate_fullscreen:
             self.callbacks.on_translate_fullscreen()
+
+    def _select_and_translate(self) -> None:
+        if self.callbacks.on_select_and_translate:
+            self.callbacks.on_select_and_translate()
 
     def _open_image(self) -> None:
         if self.callbacks.on_open_image:
