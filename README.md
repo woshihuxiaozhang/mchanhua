@@ -63,6 +63,13 @@ D:\Tools\Miniconda3\python.exe -m venv .venv
 .\.venv\Scripts\python.exe -m pytest
 ```
 
+## 排查"翻译不全"
+
+每次识别翻译后都会在 `tmp/` 下写出：
+
+- `last_capture.png` —— 这次实际抓到的画面（看选区有没有盖全文字）
+- `last_result.json` —— 识别到的每一行及其坐标、以及对应译文
+
 ## 说明
 
 - 所有坐标都是**物理像素**。本机 2560x1440 屏幕在 125% 缩放下会被报告成 2048x1152，

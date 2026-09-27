@@ -8,14 +8,16 @@ from pathlib import Path
 
 from PIL import Image
 
+from mchanhua.autoregion import capture_with_autoexpand
 from mchanhua.capture import create_grabber, grab_clipboard_image, grab_screen
 from mchanhua.config import CUSTOM_REGION_KEY, Config, save_config
+from mchanhua.debugdump import dump_last_run
 from mchanhua.diagnostics import UiWatchdog, make_dump_all_threads
 from mchanhua.geometry import Region, enable_dpi_awareness, follow_cursor_region
 from mchanhua.hotkey import HotkeyManager
 from mchanhua.logging_setup import fault_stream, get_logger
 from mchanhua.ocr import create_engine
-from mchanhua.pipeline import run_pipeline
+from mchanhua.pipeline import run_from_ocr
 from mchanhua.translate import TranslationError, create_translator
 from mchanhua.ui.region_picker import pick_region
 from mchanhua.ui.window import ResultWindow, WindowCallbacks
@@ -226,24 +228,32 @@ class Application:
         self.window.set_status(f"正在识别图片：{path.name}")
         threading.Thread(target=self._worker, args=(None, image), daemon=True).start()
 
+    def _capture_and_ocr(self, region: Region | None):
+        """抓图并识别；文字贴住选区边缘时自动扩边（详见 autoregion 模块）。"""
+
+        _region, image, ocr_result = capture_with_autoexpand(
+            region,
+            self.grabber.primary_monitor(),
+            grab=lambda target: grab_screen(self.grabber, target),
+            recognize=self.ocr.recognize,
+        )
+        return image, ocr_result
+
     def _worker(self, region: Region | None, image=None, max_lines: int | None = None) -> None:
-        if image is None:
-            try:
-                image = grab_screen(self.grabber, region)
-            except Exception as exc:
-                get_logger().exception("采集失败")
-                self.queue.put(("status", f"采集失败：{exc}"))
-                return
         try:
             translator = self._ensure_translator()
             try:
-                result = run_pipeline(
-                    image,
-                    self.ocr,
+                if image is None:
+                    image, ocr_result = self._capture_and_ocr(region)
+                else:
+                    ocr_result = self.ocr.recognize(image)
+                result = run_from_ocr(
+                    ocr_result,
                     translator,
                     on_ocr=lambda lines, ms: self.queue.put(("ocr", lines, ms)),
                     max_lines=max_lines,
                 )
+                dump_last_run(image, ocr_result, result)
             except Exception as exc:
                 get_logger().exception("处理失败")
                 self.queue.put(("status", f"处理失败：{exc}"))
