@@ -110,6 +110,16 @@ class SettingsWindow:
         row.pack(fill="x", padx=16, pady=(12, 4))
         ctk.CTkLabel(row, text="⚙", width=20, font=self.f_label, text_color=LABEL).pack(side="left")
         ctk.CTkLabel(row, text="设置", font=self.f_field, text_color=TEXT).pack(side="left", padx=6)
+        # 显示实际读取的配置文件路径，便于排查"改了配置没生效"
+        from mchanhua.config import resolve_config_path
+
+        try:
+            path_hint = str(resolve_config_path())
+        except Exception:  # pragma: no cover
+            path_hint = "?"
+        ctk.CTkLabel(row, text=path_hint, font=self.f_small, text_color=LABEL).pack(
+            side="left", padx=(10, 0)
+        )
         ctk.CTkButton(row, text="✕", width=28, height=24, corner_radius=6, fg_color="transparent",
                       hover_color=FIELD, text_color=LABEL, font=self.f_small,
                       command=self.root.destroy).pack(side="right")
