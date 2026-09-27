@@ -6,7 +6,9 @@ import queue
 import threading
 from pathlib import Path
 
-from mchanhua.capture import create_grabber, grab_screen
+from PIL import Image
+
+from mchanhua.capture import create_grabber, grab_clipboard_image, grab_screen
 from mchanhua.config import Config
 from mchanhua.diagnostics import UiWatchdog, make_dump_all_threads
 from mchanhua.geometry import Region, enable_dpi_awareness, follow_cursor_region
@@ -50,6 +52,7 @@ class Application:
             config,
             WindowCallbacks(
                 on_translate=self.request_translate,
+                on_open_image=self.request_open_image,
                 on_select_region=self.request_select_region,
                 on_quit=self.quit,
             ),
@@ -97,6 +100,12 @@ class Application:
     def request_translate(self) -> None:
         self.queue.put(("call", self.perform_translate))
 
+    def request_translate_clipboard(self) -> None:
+        self.queue.put(("call", self.perform_translate_clipboard))
+
+    def request_open_image(self) -> None:
+        self.queue.put(("call", self.perform_open_image))
+
     def request_select_region(self) -> None:
         self.queue.put(("call", self.perform_select_region))
 
@@ -129,18 +138,65 @@ class Application:
         target = region if region is not None else self._current_region()
         self.window.set_status("正在采集并识别…")
         try:
-            threading.Thread(target=self._worker, args=(target,), daemon=True).start()
+            threading.Thread(target=self._worker, args=(target, None), daemon=True).start()
         except Exception:
             self._translate_lock.release()
             raise
 
-    def _worker(self, region: Region | None) -> None:
-        try:
-            image = grab_screen(self.grabber, region)
-        except Exception as exc:
-            get_logger().exception("采集失败")
-            self.queue.put(("status", f"采集失败：{exc}"))
+    def perform_translate_clipboard(self) -> None:
+        """翻译剪贴板里的图片（Win+Shift+S 截图后按热键即可）。"""
+
+        if not self._translate_lock.acquire(blocking=False):
+            self.window.set_status("上一次取词还在处理中，请稍等…")
             return
+        try:
+            image = grab_clipboard_image()
+        except Exception as exc:
+            self._translate_lock.release()
+            get_logger().warning("读取剪贴板图片失败：%s", exc)
+            self.window.set_status(f"读取剪贴板失败：{exc}")
+            return
+        self.window.set_status("正在识别剪贴板图片…")
+        threading.Thread(target=self._worker, args=(None, image), daemon=True).start()
+
+    def perform_open_image(self) -> None:
+        """弹出文件选择框，翻译选中的图片。"""
+
+        from tkinter import filedialog
+
+        path = filedialog.askopenfilename(
+            title="选择要翻译的图片",
+            filetypes=[("图片", "*.png *.jpg *.jpeg *.bmp *.webp"), ("所有文件", "*.*")],
+        )
+        if path:
+            self.perform_translate_file(Path(path))
+
+    def perform_translate_file(self, path: Path) -> None:
+        """翻译一个图片文件。"""
+
+        if not self._translate_lock.acquire(blocking=False):
+            self.window.set_status("上一次取词还在处理中，请稍等…")
+            return
+        try:
+            image = Image.open(path)
+            image.load()
+            image = image.convert("RGB")
+        except Exception as exc:
+            self._translate_lock.release()
+            get_logger().exception("打开图片失败")
+            self.window.set_status(f"打开图片失败：{exc}")
+            return
+        self.window.set_status(f"正在识别图片：{path.name}")
+        threading.Thread(target=self._worker, args=(None, image), daemon=True).start()
+
+    def _worker(self, region: Region | None, image=None) -> None:
+        if image is None:
+            try:
+                image = grab_screen(self.grabber, region)
+            except Exception as exc:
+                get_logger().exception("采集失败")
+                self.queue.put(("status", f"采集失败：{exc}"))
+                return
         try:
             translator = self._ensure_translator()
             try:
@@ -221,6 +277,7 @@ class Application:
         registered = 0
         for action, hotkey, callback in (
             ("取词翻译", bindings.translate, self.request_translate),
+            ("翻译剪贴板图片", bindings.translate_clipboard, self.request_translate_clipboard),
             ("框选区域", bindings.select_region, self.request_select_region),
             ("退出", bindings.quit, self.quit),
         ):

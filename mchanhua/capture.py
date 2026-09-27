@@ -118,3 +118,25 @@ def grab_screen(
             f"采集尺寸不符：期望 {target.width}x{target.height}，实际 {image.width}x{image.height}"
         )
     return image
+
+
+def grab_clipboard_image() -> Image.Image:
+    """取剪贴板里的图片（配合 Win+Shift+S 截图用）。没有图片时给出可读的错误。"""
+
+    from PIL import ImageGrab
+
+    content = ImageGrab.grabclipboard()
+    if content is None:
+        raise RuntimeError("剪贴板里没有图片，先用 Win+Shift+S 截图或复制一张图")
+    if isinstance(content, list):
+        # 剪贴板里是文件列表时，取第一张真实存在的图片
+        from pathlib import Path
+
+        for item in content:
+            path = Path(item)
+            if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".webp"} and path.exists():
+                image = Image.open(path)
+                image.load()
+                return image.convert("RGB")
+        raise RuntimeError("剪贴板里是文件列表，但没有找到图片文件")
+    return content.convert("RGB")

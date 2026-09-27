@@ -9,9 +9,14 @@ from typing import Any, Sequence
 import httpx
 
 from mchanhua.translate.base import TranslationError
-from mchanhua.translate.placeholders import missing_tokens, protect_lines, restore
+from mchanhua.translate.placeholders import (
+    missing_tokens,
+    protect_lines,
+    restore,
+    strip_leftover_sentinels,
+)
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 
 SYSTEM_PROMPT = """你是 Minecraft 模组与整合包的中英翻译译者，负责把游戏界面文本翻译成简体中文。
 
@@ -32,6 +37,28 @@ SYSTEM_PROMPT = """你是 Minecraft 模组与整合包的中英翻译译者，�
 """
 
 GLOSSARY_PREFIX = "固定译法（必须遵守）："
+
+CORRECTION_NOTE = """
+
+补充说明：下面这些行是**屏幕 OCR 的结果，可能有字母被认错**（例如 HACHIHERY 其实是 MACHINERY、
+TCHNOLOGY 其实是 TECHNOLOGY）。请推断最可能的英文原词并给出中文翻译，不要原样返回英文；
+只有确认是人名、玩家 ID、命令或代码时才原样返回。
+"""
+
+LETTERS = re.compile(r"[A-Za-z]")
+NON_WORD = re.compile(r"[0-9_./\\:@]")
+
+
+def looks_like_word(text: str, min_letters: int = 3) -> bool:
+    """判断一行是否像"本该翻出来的英文单词"（用来决定要不要二次纠错）。
+
+    含数字、下划线、路径符号的行通常是 ID 或标识符，不去猜。
+    """
+
+    stripped = text.strip()
+    if len(LETTERS.findall(stripped)) < min_letters:
+        return False
+    return NON_WORD.search(stripped) is None
 
 
 def _strip_code_fence(text: str) -> str:
@@ -85,15 +112,33 @@ class DeepSeekTranslator:
         if not lines:
             return []
         self.warnings = []
-        protected, tables = protect_lines(list(lines))
+        sources = list(lines)
+        result = self._request(sources)
+
+        retry = [
+            (index, source)
+            for index, (source, target) in enumerate(zip(sources, result))
+            if target.strip() == source.strip() and looks_like_word(source)
+        ]
+        if retry:
+            self.warnings.append(f"{len(retry)} 行模型原样返回，已按 OCR 纠错再问一次")
+            corrected = self._request([source for _, source in retry], correction=True)
+            for (index, _source), target in zip(retry, corrected):
+                if target.strip() and target.strip() != sources[index].strip():
+                    result[index] = target
+        return result
+
+    def _request(self, lines: list[str], correction: bool = False) -> list[str]:
+        protected, tables = protect_lines(lines)
         numbered = "\n".join(f"{index}. {text}" for index, text in enumerate(protected))
+        system_prompt = build_system_prompt(self.glossary) + (CORRECTION_NOTE if correction else "")
 
         payload: dict[str, Any] = {
             "model": self.model,
             "temperature": self.temperature,
             "response_format": {"type": "json_object"},
             "messages": [
-                {"role": "system", "content": build_system_prompt(self.glossary)},
+                {"role": "system", "content": system_prompt},
                 {
                     "role": "user",
                     "content": f"请翻译下面 {len(lines)} 行文本，返回 JSON：\n{numbered}",
@@ -124,7 +169,7 @@ class DeepSeekTranslator:
         except (KeyError, IndexError, ValueError) as exc:
             raise TranslationError(f"DeepSeek 响应结构异常：{response.text[:300]}") from exc
 
-        return self._parse(content, list(lines), tables)
+        return self._parse(content, lines, tables)
 
     def _parse(self, content: str, sources: list[str], tables: list[list[str]]) -> list[str]:
         try:
@@ -147,7 +192,7 @@ class DeepSeekTranslator:
                 continue
             if not 0 <= index < len(sources):
                 continue
-            result[index] = restore(target, tables[index])
+            result[index] = strip_leftover_sentinels(restore(target, tables[index]))
             seen.add(index)
             lost = missing_tokens(target, tables[index])
             if lost:

@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from mchanhua.translate.base import TranslationError
-from mchanhua.translate.deepseek import DeepSeekTranslator, build_system_prompt
+from mchanhua.translate.deepseek import DeepSeekTranslator, build_system_prompt, looks_like_word
 
 
 def _client(handler) -> httpx.Client:
@@ -43,17 +43,61 @@ def test_translate_lines_returns_ordered_results():
     assert translator._endpoint() == "https://api.deepseek.com/v1/chat/completions"
 
 
-def test_translate_lines_restores_placeholders_and_reports_missing_lines():
+def test_missing_lines_are_retried_with_ocr_correction():
+    """第一次漏翻的行会带"OCR 纠错"提示再问一次。"""
+
+    payloads = [
+        json.dumps({"lines": [{"i": 0, "dst": "耐久 \ue0000\ue001"}]}, ensure_ascii=False),
+        json.dumps({"lines": [{"i": 0, "dst": "第二行"}]}, ensure_ascii=False),
+    ]
+    seen: list[dict] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
-        content = json.dumps({"lines": [{"i": 0, "dst": "耐久 \ue0000\ue001"}]})
-        return httpx.Response(200, json=_chat_response(content))
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=_chat_response(payloads[min(len(seen) - 1, 1)]))
 
     translator = DeepSeekTranslator(api_key="sk-test", client=_client(handler))
     result = translator.translate_lines(["Durability §a", "Second line"])
 
-    assert result[0] == "耐久 §a"
-    assert result[1] == "Second line"          # 漏翻的行保留原文
-    assert any("漏翻" in warning for warning in translator.warnings)
+    assert result == ["耐久 §a", "第二行"]
+    assert len(seen) == 2, "应触发一次纠错请求"
+    assert "MACHINERY" in seen[1]["messages"][0]["content"]   # 纠错提示里带示例
+    assert any("再问一次" in warning for warning in translator.warnings)
+
+
+def test_source_is_kept_when_retry_also_returns_source():
+    def handler(request: httpx.Request) -> httpx.Response:
+        content = json.dumps({"lines": [{"i": 0, "dst": "HACHIHERY"}]})
+        return httpx.Response(200, json=_chat_response(content))
+
+    translator = DeepSeekTranslator(api_key="sk-test", client=_client(handler))
+    result = translator.translate_lines(["HACHIHERY"])
+    assert result == ["HACHIHERY"]
+
+
+def test_identifiers_are_not_retried():
+    """玩家 ID / 带数字下划线的标识符不去猜，避免无中生有。"""
+
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content))
+        content = json.dumps({"lines": [{"i": 0, "dst": "AlexLime008"}]})
+        return httpx.Response(200, json=_chat_response(content))
+
+    translator = DeepSeekTranslator(api_key="sk-test", client=_client(handler))
+    assert translator.translate_lines(["AlexLime008"]) == ["AlexLime008"]
+    assert len(calls) == 1, "标识符不应触发二次请求"
+
+
+def test_looks_like_word_rules():
+    assert looks_like_word("HACHIHERY")
+    assert looks_like_word("Steel Ingot")
+    assert not looks_like_word("AlexLime008")
+    assert not looks_like_word("Realistika_")
+    assert not looks_like_word("minecraft:stone")
+    assert not looks_like_word("12 34")
+    assert not looks_like_word("ab")
 
 
 def test_code_fence_and_glossary():

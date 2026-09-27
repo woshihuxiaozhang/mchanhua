@@ -63,3 +63,10 @@ def missing_tokens(text: str, tokens: list[str]) -> list[str]:
     """检查译文里哪些格式串丢了（模型偶尔会吃掉哨兵）。"""
 
     return [token for token in tokens if token not in text]
+
+
+def strip_leftover_sentinels(text: str) -> str:
+    """清掉译文里没还原成功的哨兵，避免把控制字符带到界面上。"""
+
+    pattern = re.compile(rf"{SENTINEL_PREFIX}\d+{SENTINEL_SUFFIX}")
+    return pattern.sub("", text)

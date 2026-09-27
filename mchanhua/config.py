@@ -39,6 +39,7 @@ def project_config_path(project_dir: Path | None = None) -> Path:
 @dataclass
 class HotkeysConfig:
     translate: str = "ctrl+alt+q"
+    translate_clipboard: str = "ctrl+alt+s"
     select_region: str = "ctrl+alt+r"
     toggle_window: str = "ctrl+alt+w"
     quit: str = "ctrl+alt+x"

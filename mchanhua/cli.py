@@ -19,7 +19,7 @@ from mchanhua.ocr import create_engine
 from mchanhua.ocr import windows as windows_ocr
 from mchanhua.ocr.base import OcrUnavailable
 from mchanhua.pipeline import render_pairs, run_pipeline
-from mchanhua.translate import create_translator
+from mchanhua.translate import create_translator, split_translatable
 
 
 def _load_image(path: Path, region: Region | None) -> Image.Image:
@@ -166,6 +166,38 @@ def cmd_translate_image(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_translate_text(args: argparse.Namespace) -> int:
+    """直接翻译一段文本，用来验证提示词效果（不经过 OCR）。"""
+
+    config = load_config(args.config)
+    text = args.text if args.text is not None else sys.stdin.read()
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        print("没有可翻译的内容", file=sys.stderr)
+        return 2
+
+    api_key = config.resolved_api_key
+    translator = create_translator(config.translate, api_key, glossary=config.glossary) if api_key else None
+    if translator is None:
+        print("未配置 DeepSeek API key，只回显输入。", file=sys.stderr)
+
+    output = list(lines)
+    pending = split_translatable(lines)
+    if translator is not None and pending:
+        translated = translator.translate_lines([text for _, text in pending])
+        for (index, source), target in zip(pending, translated):
+            output[index] = target
+            if target.strip() == source.strip():
+                print(f"提示：第 {index + 1} 行模型原样返回（{source!r}）", file=sys.stderr)
+
+    for source, target in zip(lines, output):
+        if source == target:
+            print(source)
+        else:
+            print(f"{target}\n  ← {source}")
+    return 0
+
+
 def cmd_config_init(args: argparse.Namespace) -> int:
     config = Config()
     if args.config:
@@ -243,6 +275,10 @@ def build_parser() -> argparse.ArgumentParser:
     translate_image.add_argument("--upscale", type=float, help="识别前放大倍数，默认取配置值")
     translate_image.add_argument("--backend", choices=("auto", "windows", "rapidocr"), help="OCR 后端")
     translate_image.set_defaults(func=cmd_translate_image)
+
+    translate_text = sub.add_parser("translate-text", help="直接翻译一段文本（验证提示词效果）")
+    translate_text.add_argument("text", nargs="?", help="要翻译的文本；不给则从标准输入读取")
+    translate_text.set_defaults(func=cmd_translate_text)
 
     config_init = sub.add_parser("config-init", help="写出默认配置文件")
     config_init.add_argument(

@@ -37,6 +37,7 @@ def resolve_position(config, screen_size: tuple[int, int]) -> tuple[int, int]:
 @dataclass
 class WindowCallbacks:
     on_translate: Callable[[], None] | None = None
+    on_open_image: Callable[[], None] | None = None
     on_select_region: Callable[[], None] | None = None
     on_quit: Callable[[], None] | None = None
 
@@ -138,6 +139,7 @@ class ResultWindow:
         bar.pack(fill="x", padx=8, pady=(0, 8))
         for text, command in (
             ("重新取词", self._translate),
+            ("打开图片", self._open_image),
             ("框选区域", self._select_region),
             ("清空", self._clear),
             ("退出", self._quit),
@@ -172,6 +174,10 @@ class ResultWindow:
     def _select_region(self) -> None:
         if self.callbacks.on_select_region:
             self.callbacks.on_select_region()
+
+    def _open_image(self) -> None:
+        if self.callbacks.on_open_image:
+            self.callbacks.on_open_image()
 
     def _clear(self) -> None:
         self.target.delete("1.0", "end")
