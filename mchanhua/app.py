@@ -20,6 +20,7 @@ from mchanhua.ocr import create_engine
 from mchanhua.pipeline import run_from_ocr
 from mchanhua.translate import TranslationError, create_translator
 from mchanhua.ui.region_picker import pick_region
+from mchanhua.ui.theme import heal_theme
 from mchanhua.ui.window import ResultWindow, WindowCallbacks
 
 # 全屏翻译时最多翻译多少行（整屏识别出来的行可能很多，这里限制成本与噪音）
@@ -43,6 +44,14 @@ class Application:
         self.config = config
         self.config_path = config_path or config.loaded_from
         self.use_hotkeys = use_hotkeys
+        # 主题自愈：配置被旧实例写坏（配色不达标）时恢复默认浅色并落盘
+        healed = heal_theme(config)
+        if healed:
+            logger.warning("检测到配色不达标，已恢复默认浅色主题：%s", "；".join(healed))
+            try:
+                save_config(config, self.config_path)
+            except Exception:
+                logger.warning("恢复后的主题写盘失败", exc_info=True)
         logger.info("步骤 1/3：创建采集后端")
         self.grabber = grabber or create_grabber(config.capture.backend, config.capture.monitor)
         logger.info("步骤 2/3：加载 OCR 引擎（首次加载模型约需 1~2 秒）")

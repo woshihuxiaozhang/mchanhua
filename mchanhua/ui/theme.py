@@ -8,6 +8,35 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 
 from mchanhua.config import UiConfig
+from mchanhua.ui.contrast import audit
+
+# 默认浅色主题（自愈时用它覆盖被旧实例写坏的混搭配色）
+DEFAULT_LIGHT: dict[str, object] = {
+    "background": "#f5f6f8",
+    "panel": "#ffffff",
+    "text": "#17171b",
+    "text_dim": "#5f6470",
+    "accent": "#0a66ff",
+    "button_background": "#e8eaee",
+    "button_text": "#17171b",
+    "opacity": 1.0,
+}
+
+
+def heal_theme(config) -> list[str]:
+    """配色不达标时恢复默认浅色。返回被修正的问题列表（空表示没问题）。
+
+    旧实例用旧配色保存配置时，会把新版本新增的字段（如 text_dim）与旧背景混搭，
+    造出"深底浅字/浅底浅字"这种读不清的配色；这里在启动时自动纠正。
+    """
+
+    theme = Theme.from_config(config.ui)
+    problems = audit(theme)
+    if not problems:
+        return []
+    for key, value in DEFAULT_LIGHT.items():
+        setattr(config.ui, key, value)
+    return problems
 
 
 @dataclass(frozen=True)
