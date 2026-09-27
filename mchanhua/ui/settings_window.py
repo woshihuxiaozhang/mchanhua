@@ -300,6 +300,19 @@ class SettingsWindow:
                 continue
             bindings[label] = value
         problems.extend(find_conflicts(bindings))
+        from mchanhua.ui.contrast import check_colors
+
+        problems.extend(
+            check_colors(
+                {
+                    "background": str(self._vars["ui.background"].get()),
+                    "panel": str(self._vars["ui.panel"].get()),
+                    "text": str(self._vars["ui.text"].get()),
+                    "text_dim": str(self._vars.get("ui.text_dim", tk.StringVar(value="#5f6470")).get()),
+                    "accent": str(self._vars["ui.accent"].get()),
+                }
+            )
+        )
         if not str(self._vars["base_url"].get()).strip():
             problems.append("接口地址不能为空")
         if not str(self._vars["model"].get()).strip():

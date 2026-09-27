@@ -94,6 +94,7 @@ class UiConfig:
     button_text: str = "#17171b"
     source_font_size: int = 11
     result_font_size: int = 15
+    line_height: float = 1.5          # 行高倍数（WCAG/排版规范建议正文 1.5 左右）
     padding: int = 8
     button_rows: int = 2
 

@@ -23,6 +23,7 @@ class Theme:
     font_size: int
     source_font_size: int
     result_font_size: int
+    line_height: float
     padding: int
     opacity: float
     always_on_top: bool
@@ -45,6 +46,7 @@ class Theme:
             font_size=max(8, int(ui.font_size)),
             source_font_size=max(8, int(ui.source_font_size)),
             result_font_size=max(9, int(ui.result_font_size)),
+            line_height=min(2.2, max(1.1, float(getattr(ui, "line_height", 1.5)))),
             padding=max(4, int(ui.padding)),
             opacity=min(1.0, max(0.3, float(ui.opacity))),
             always_on_top=bool(ui.always_on_top),

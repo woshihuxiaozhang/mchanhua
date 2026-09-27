@@ -14,8 +14,18 @@ from typing import Callable
 import customtkinter as ctk
 
 from mchanhua.config import Config
+from mchanhua.ui.contrast import text_on
 from mchanhua.pipeline import PipelineResult
 from mchanhua.ui.theme import Theme
+
+# 字号阶梯（排版规范要求成体系，而不是随手取值）
+FONT_STEPS = (11, 13, 15, 19)
+
+
+def snap_font_size(size: int) -> int:
+    """把字号归到最近的阶梯上。"""
+
+    return min(FONT_STEPS, key=lambda step: abs(step - size))
 
 
 def resolve_position(config, screen_size: tuple[int, int]) -> tuple[int, int]:
@@ -101,10 +111,12 @@ class ResultWindow:
         self.root.minsize(360, 260)
 
         family = theme.font_family or "Microsoft YaHei UI"
-        self.title_font = ctk.CTkFont(family=family, size=max(11, theme.font_size))
-        self.meta_font = ctk.CTkFont(family=family, size=max(9, theme.source_font_size))
-        self.result_font = ctk.CTkFont(family=family, size=max(10, theme.result_font_size))
-        self.source_font = ctk.CTkFont(family=family, size=max(9, theme.source_font_size))
+        self.title_font = ctk.CTkFont(family=family, size=snap_font_size(theme.font_size))
+        self.meta_font = ctk.CTkFont(family=family, size=FONT_STEPS[0])
+        self.result_font = ctk.CTkFont(family=family, size=snap_font_size(theme.result_font_size))
+        self.source_font = ctk.CTkFont(family=family, size=snap_font_size(theme.source_font_size))
+        # 行高：把倍数换算成像素，加到每行之后，长句更好读
+        self.line_px = max(0, round((theme.line_height - 1.0) * snap_font_size(theme.result_font_size)))
 
         self._build_chrome()
         self._build_body()
@@ -164,6 +176,7 @@ class ResultWindow:
             fg_color="transparent", text_color=theme.text, corner_radius=6, border_width=0,
         )
         self.target.pack(fill="both", expand=True)
+        self._apply_line_spacing(self.target)
 
         self.source_area = ctk.CTkFrame(self.body, corner_radius=0, fg_color="transparent")
         self.source_area.pack(fill="x", padx=6, pady=(0, 6))
@@ -184,7 +197,20 @@ class ResultWindow:
             fg_color="transparent", text_color=theme.text_dim, corner_radius=6, border_width=0,
         )
         self.source.pack(fill="x")
+        self._apply_line_spacing(self.source, scale=0.8)
         self.source_visible = True
+
+    def _apply_line_spacing(self, textbox, scale: float = 1.0) -> None:
+        """给 Tk 文本框加行距（CTkTextbox 内部是 tkinter.Text）。"""
+
+        inner = getattr(textbox, "_textbox", None)
+        if inner is None:
+            return
+        spacing = max(0, round(self.line_px * scale))
+        try:
+            inner.configure(spacing2=spacing, spacing3=spacing)
+        except tk.TclError:  # pragma: no cover
+            pass
 
     def _build_actions(self) -> None:
         theme = self.theme
