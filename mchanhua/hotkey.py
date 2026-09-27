@@ -63,10 +63,17 @@ def reset_pressed_state() -> int:
 
 
 class HotkeyManager:
-    """注册全局热键；keyboard 库缺失或注册失败时给出可读的错误。"""
+    """注册全局热键。
+
+    所有热键都用自家匹配：库的匹配要求"当前按下的键集合恰好等于热键"，
+    选区弹窗之类场景丢掉一次 key-up 就会残留按键，导致必须重按。
+    自家判断只要求"组合里的键都按着"，并且按过一次后要等松开才会再次触发。
+    """
 
     def __init__(self) -> None:
         self._registered: list[tuple[str, str]] = []
+        self._watcher = ModifierComboWatcher()
+        self._started = False
 
     def register(self, action: str, hotkey: str, callback: Callable[[], None]) -> None:
         normalized = normalize_hotkey(hotkey)
@@ -78,28 +85,91 @@ class HotkeyManager:
                 normalized,
             )
         self._registered.append((action, normalized))
-        try:
-            import keyboard
-        except ImportError as exc:  # pragma: no cover - 依赖缺失时才走到
-            raise RuntimeError("缺少 keyboard 库，无法注册全局热键：python -m pip install keyboard") from exc
-        try:
-            keyboard.add_hotkey(normalized, callback)
-        except Exception as exc:
-            raise RuntimeError(f"注册热键 {normalized} 失败：{exc}") from exc
+        self._watcher.register(action, normalized, callback)
+
+    def start(self) -> None:
+        """装上修饰键组合的监听（需要在注册之后调用）。"""
+
+        if self._started or not self._watcher.bindings:
+            return
+        self._watcher.start()
+        self._started = True
 
     @property
     def bindings(self) -> list[tuple[str, str]]:
         return list(self._registered)
 
     def stop(self) -> None:
+        self._watcher.stop()
+        self._started = False
+        self._registered.clear()
+
+
+class ModifierComboWatcher:
+    """自己实现热键触发判断：只要组合里的键**都**按着就触发，松开后才允许再次触发。
+
+    这样即使按键状态里残留了别的键（弹窗抢焦点时常见），也不会漏触发。
+    """
+
+    def __init__(self, is_pressed: Callable[[str], bool] | None = None) -> None:
+        self._bindings: list[tuple[str, list[str], Callable[[], None]]] = []
+        self._armed: dict[str, bool] = {}
+        self._hook = None
+        self._is_pressed = is_pressed or _default_is_pressed
+
+    @property
+    def bindings(self) -> list[tuple[str, list[str]]]:
+        return [(action, keys) for action, keys, _ in self._bindings]
+
+    def register(self, action: str, hotkey: str, callback: Callable[[], None]) -> None:
+        keys = [part.strip().lower() for part in hotkey.split("+") if part.strip()]
+        self._bindings.append((action, keys, callback))
+        self._armed[action] = True
+
+    def handle_event(self, name: str, event_type: str) -> bool:
+        """处理一个按键事件；返回是否因此触发了某个热键。"""
+
+        fired = False
+        name = (name or "").lower()
+        if event_type == "up":
+            for action, keys, _ in self._bindings:
+                if name in keys:
+                    self._armed[action] = True
+            return False
+
+        for action, keys, callback in self._bindings:
+            if not self._armed.get(action, True):
+                continue
+            if all(self._is_pressed(key) for key in keys):
+                self._armed[action] = False
+                get_logger().info("修饰键组合触发：%s", action)
+                callback()
+                fired = True
+        return fired
+
+    def start(self) -> None:
+        try:
+            import keyboard
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("缺少 keyboard 库，无法注册全局热键") from exc
+        self._hook = keyboard.hook(lambda event: self.handle_event(event.name, event.event_type))
+
+    def stop(self) -> None:
+        if self._hook is None:
+            return
         try:
             import keyboard
 
-            for _, hotkey in self._registered:
-                try:
-                    keyboard.remove_hotkey(hotkey)
-                except (KeyError, ValueError):
-                    pass
-        except ImportError:  # pragma: no cover
+            keyboard.unhook(self._hook)
+        except Exception:  # pragma: no cover
             pass
-        self._registered.clear()
+        self._hook = None
+
+
+def _default_is_pressed(key: str) -> bool:
+    try:
+        import keyboard
+
+        return bool(keyboard.is_pressed(key))
+    except Exception:  # pragma: no cover
+        return False

@@ -415,6 +415,7 @@ class Application:
             except RuntimeError as exc:
                 logger.error("注册热键失败：%s", exc)
                 self.queue.put(("status", str(exc)))
+        self.hotkeys.start()
         logger.info("热键注册完成：%d 个", registered)
         self.queue.put(
             ("status", f"就绪：{registered} 个热键已注册，把鼠标移到物品上按热键取词")

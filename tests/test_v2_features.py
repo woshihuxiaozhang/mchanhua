@@ -113,9 +113,13 @@ def test_select_region_cancel_keeps_previous(workdir: Path, monkeypatch):
 class _RecordingHotkeys:
     def __init__(self) -> None:
         self.bindings: list[tuple[str, str]] = []
+        self.started = False
 
     def register(self, action: str, hotkey: str, callback) -> None:
         self.bindings.append((action, hotkey))
+
+    def start(self) -> None:
+        self.started = True
 
     def stop(self) -> None:
         pass
@@ -132,6 +136,7 @@ def test_hotkey_registration_covers_v2_actions(workdir: Path):
     assert registered["框选并翻译"] == "alt+/"
     assert registered["全屏翻译"] == "alt+m"
     assert len(app.hotkeys.bindings) == 6
+    assert app.hotkeys.started
 
 
 def test_fullscreen_line_cap():
