@@ -1,6 +1,7 @@
-"""结果显示小窗。
+"""结果小窗（浮层卡片风格）。
 
-设计目标：不覆盖游戏画面，只在旁边显示译文；置顶、半透明、可拖动。
+设计要点：译文当主角、原文退到次级、耗时信息归到状态行；多行结果（如全屏翻译）
+自动切成"原文 | 译文"双栏对照。所有颜色/字号/内边距都来自配置里的主题。
 """
 
 from __future__ import annotations
@@ -8,8 +9,9 @@ from __future__ import annotations
 import queue
 import tkinter as tk
 from dataclasses import dataclass
-from tkinter import font as tkfont
 from typing import Callable
+
+import customtkinter as ctk
 
 from mchanhua.config import Config
 from mchanhua.pipeline import PipelineResult
@@ -26,10 +28,7 @@ def resolve_position(config, screen_size: tuple[int, int]) -> tuple[int, int]:
     if config.position == "right":
         return (max(0, screen_w - config.width - margin), margin)
     if config.position == "bottom-right":
-        return (
-            max(0, screen_w - config.width - margin),
-            max(0, screen_h - config.height - margin),
-        )
+        return (max(0, screen_w - config.width - margin), max(0, screen_h - config.height - margin))
     if config.position == "bottom-left":
         return (margin, max(0, screen_h - config.height - margin))
     return (margin, margin)
@@ -47,14 +46,7 @@ class WindowCallbacks:
 
 
 def drain_queue(message_queue: "queue.Queue[tuple]", sink, max_messages: int = 50) -> int:
-    """把队列里的消息交给 sink 处理，返回处理条数。
-
-    sink 需要实现 set_status / show_source / show_result；
-    带 "call" 的消息是"在界面线程执行一次的任务"。
-
-    这里刻意加上 max_messages 上限：万一某个任务又往队列里补消息，
-    drain 也不会陷进去出不来（曾经就是因为这个把 Tk 主线程卡死过）。
-    """
+    """把队列里的消息交给 sink 处理；"call" 消息是在界面线程执行的一次性任务。"""
 
     handled = 0
     for _ in range(max_messages):
@@ -75,6 +67,19 @@ def drain_queue(message_queue: "queue.Queue[tuple]", sink, max_messages: int = 5
     return handled
 
 
+def _is_dark(color: str) -> bool:
+    """判断颜色是不是深色（用来决定界面走深色还是浅色外观）。"""
+
+    value = (color or "").lstrip("#")
+    if len(value) != 6:
+        return True
+    try:
+        red, green, blue = (int(value[i : i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return True
+    return (red * 299 + green * 587 + blue * 114) / 1000 < 140
+
+
 class ResultWindow:
     def __init__(self, config: Config, callbacks: WindowCallbacks | None = None) -> None:
         self.config = config
@@ -82,103 +87,133 @@ class ResultWindow:
         self.heartbeat = None
         self.theme = Theme.from_config(config.ui)
         theme = self.theme
-        self.root = tk.Tk()
+
+        ctk.set_appearance_mode("dark" if _is_dark(theme.background) else "light")
+        self.root = ctk.CTk(fg_color=theme.background)
         self.root.title("mchanhua 取词翻译")
         self.root.attributes("-topmost", bool(theme.always_on_top))
-        # 透明度放到窗口映射之后再设：映射前设置分层窗口属性，在部分环境下会导致窗口不重绘
         self.root.after(200, self._apply_alpha)
 
-        width, height = theme.width, theme.height
-        x, y = resolve_position(config.ui, (self.root.winfo_screenwidth(), self.root.winfo_screenheight()))
-        self.root.geometry(f"{width}x{height}+{x}+{y}")
-        self.root.minsize(320, 220)
-        self.root.configure(bg=theme.background)
-
-        family = theme.font_family
-        if family not in tkfont.families():
-            family = "Microsoft YaHei"
-        self.target_font = tkfont.Font(family=family, size=theme.result_font_size)
-        self.source_font = tkfont.Font(family=family, size=theme.source_font_size)
-
-        self.status = tk.Label(
-            self.root,
-            text="就绪：把鼠标移到物品上，按热键取词",
-            anchor="w",
-            bg=theme.background,
-            fg=theme.accent,
-            font=self.source_font,
-            padx=theme.padding,
-            pady=4,
+        x, y = resolve_position(
+            config.ui, (self.root.winfo_screenwidth(), self.root.winfo_screenheight())
         )
-        self.status.pack(fill="x")
+        self.root.geometry(f"{theme.width}x{theme.height}+{x}+{y}")
+        self.root.minsize(360, 260)
 
-        body = tk.Frame(self.root, bg=theme.background)
-        body.pack(fill="both", expand=True, padx=theme.padding, pady=(0, 4))
+        family = theme.font_family or "Microsoft YaHei UI"
+        self.title_font = ctk.CTkFont(family=family, size=max(11, theme.font_size))
+        self.meta_font = ctk.CTkFont(family=family, size=max(9, theme.source_font_size))
+        self.result_font = ctk.CTkFont(family=family, size=max(10, theme.result_font_size))
+        self.source_font = ctk.CTkFont(family=family, size=max(9, theme.source_font_size))
 
-        target_area = tk.Frame(body, bg=theme.background)
-        target_area.pack(fill="both", expand=True)
-
-        self.target = tk.Text(
-            target_area,
-            wrap="word",
-            font=self.target_font,
-            bg=theme.panel,
-            fg=theme.text,
-            insertbackground=theme.text,
-            relief="flat",
-            padx=theme.padding,
-            pady=6,
-        )
-        scrollbar = tk.Scrollbar(target_area, command=self.target.yview)
-        self.target.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side="right", fill="y")
-        self.target.pack(side="left", fill="both", expand=True)
-
-        self.source = tk.Text(
-            body,
-            height=4,
-            wrap="word",
-            font=self.source_font,
-            bg=theme.panel,
-            fg=theme.text_dim,
-            relief="flat",
-            padx=theme.padding,
-            pady=4,
-        )
-        self.source.pack(fill="x", pady=(6, 0))
-
-        button_rows = (
-            (("翻译选区", self._translate), ("框选并翻译", self._select_and_translate), ("全屏翻译", self._translate_fullscreen)),
-            (("只框选", self._select_region), ("打开图片", self._open_image), ("清空", self._clear), ("设置", self._open_settings), ("退出", self._quit)),
-        )
-        for row in button_rows:
-            bar = tk.Frame(self.root, bg=theme.background)
-            bar.pack(fill="x", padx=theme.padding, pady=(0, 6))
-            for text, command in row:
-                tk.Button(
-                    bar,
-                    text=text,
-                    command=command,
-                    font=self.source_font,
-                    bg=theme.button_background,
-                    fg=theme.button_text,
-                    activebackground=theme.accent,
-                    activeforeground=theme.panel,
-                    relief="flat",
-                ).pack(side="left", padx=(0, 6))
-
-        for widget in (self.status, body):
-            widget.bind("<Button-1>", self._start_drag)
-            widget.bind("<B1-Motion>", self._drag)
+        self._build_chrome()
+        self._build_body()
+        self._build_actions()
         self._drag_origin: tuple[int, int] | None = None
+        self.compare_mode = False
 
+    # ---- 外观 ----
     def _apply_alpha(self) -> None:
         try:
             self.root.attributes("-alpha", float(self.theme.opacity))
-        except tk.TclError:  # pragma: no cover - 少数平台不支持
+        except tk.TclError:  # pragma: no cover
             pass
 
-    # ---- 拖动窗口 ----
+    def _build_chrome(self) -> None:
+        theme = self.theme
+        bar = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
+        bar.pack(fill="x", padx=theme.padding, pady=(theme.padding, 0))
+
+        mark = ctk.CTkLabel(bar, text="译", width=24, height=24, corner_radius=6,
+                            fg_color=theme.accent, text_color=theme.background,
+                            font=self.meta_font)
+        mark.pack(side="left", padx=(0, 8))
+        title = ctk.CTkLabel(bar, text="取词翻译", font=self.title_font, text_color=theme.text)
+        title.pack(side="left")
+        self.provider_chip = ctk.CTkLabel(
+            bar, text=self._provider_label(), font=self.meta_font,
+            text_color=theme.accent, fg_color="transparent",
+        )
+        self.provider_chip.pack(side="left", padx=8)
+
+        for text, command in (("✕", self._quit), ("—", self._minimize)):
+            ctk.CTkButton(
+                bar, text=text, width=28, height=24, corner_radius=6,
+                fg_color="transparent", hover_color=theme.panel,
+                text_color=theme.text_dim, font=self.meta_font, command=command,
+            ).pack(side="right", padx=2)
+        for widget in (bar, mark, title):
+            widget.bind("<Button-1>", self._start_drag)
+            widget.bind("<B1-Motion>", self._drag)
+
+        self.status = ctk.CTkLabel(
+            self.root, text="就绪：Alt+V 框选一次，之后按 Ctrl+Alt 翻译",
+            anchor="w", justify="left", font=self.meta_font, text_color=theme.text_dim,
+        )
+        self.status.pack(fill="x", padx=theme.padding + 4, pady=(2, 6))
+
+    def _build_body(self) -> None:
+        theme = self.theme
+        self.body = ctk.CTkFrame(self.root, corner_radius=8, fg_color=theme.panel)
+        self.body.pack(fill="both", expand=True, padx=theme.padding, pady=(0, 6))
+
+        self.result_area = ctk.CTkFrame(self.body, corner_radius=0, fg_color="transparent")
+        self.result_area.pack(fill="both", expand=True, padx=6, pady=(6, 0))
+        self.target = ctk.CTkTextbox(
+            self.result_area, wrap="word", font=self.result_font,
+            fg_color="transparent", text_color=theme.text, corner_radius=6, border_width=0,
+        )
+        self.target.pack(fill="both", expand=True)
+
+        self.source_area = ctk.CTkFrame(self.body, corner_radius=0, fg_color="transparent")
+        self.source_area.pack(fill="x", padx=6, pady=(0, 6))
+        self.source_label = ctk.CTkLabel(
+            self.source_area, text="原文", anchor="w", font=self.meta_font,
+            text_color=theme.text_dim,
+        )
+        self.source_label.pack(fill="x")
+        self.source = ctk.CTkTextbox(
+            self.source_area, height=64, wrap="word", font=self.source_font,
+            fg_color="transparent", text_color=theme.text_dim, corner_radius=6, border_width=0,
+        )
+        self.source.pack(fill="x")
+
+    def _build_actions(self) -> None:
+        theme = self.theme
+        rows = (
+            (
+                ("翻译选区", self._translate, True),
+                ("框选并翻译", self._select_and_translate, False),
+                ("全屏翻译", self._translate_fullscreen, False),
+                ("双栏对照", self._toggle_layout, False),
+            ),
+            (
+                ("打开图片", self._open_image, False),
+                ("只框选", self._select_region, False),
+                ("清空", self._clear, False),
+                ("设置", self._open_settings, False),
+                ("退出", self._quit, False),
+            ),
+        )
+        for row in rows:
+            bar = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
+            bar.pack(fill="x", padx=theme.padding, pady=(0, 6))
+            for text, command, primary in row:
+                ctk.CTkButton(
+                    bar, text=text, height=28, corner_radius=6, font=self.meta_font,
+                    fg_color=theme.accent if primary else theme.button_background,
+                    hover_color=theme.accent if primary else theme.panel,
+                    text_color=theme.background if primary else theme.button_text,
+                    command=command,
+                ).pack(side="left", padx=(0, 6))
+
+    def _provider_label(self) -> str:
+        from mchanhua.translate.providers import find_preset
+
+        preset = find_preset(self.config.translate.provider)
+        return preset.label.split("（")[0] if preset else self.config.translate.provider
+
+    # ---- 拖动 / 窗口按钮 ----
     def _start_drag(self, event) -> None:
         self._drag_origin = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
 
@@ -187,42 +222,59 @@ class ResultWindow:
             return
         self.root.geometry(f"+{event.x_root - self._drag_origin[0]}+{event.y_root - self._drag_origin[1]}")
 
-    # ---- 按钮 ----
+    def _minimize(self) -> None:
+        self.root.iconify()
+
+    # ---- 按钮回调 ----
+    def _call(self, name: str) -> None:
+        callback = getattr(self.callbacks, name, None)
+        if callback:
+            callback()
+
     def _translate(self) -> None:
-        if self.callbacks.on_translate:
-            self.callbacks.on_translate()
-
-    def _select_region(self) -> None:
-        if self.callbacks.on_select_region:
-            self.callbacks.on_select_region()
-
-    def _translate_fullscreen(self) -> None:
-        if self.callbacks.on_translate_fullscreen:
-            self.callbacks.on_translate_fullscreen()
+        self._call("on_translate")
 
     def _select_and_translate(self) -> None:
-        if self.callbacks.on_select_and_translate:
-            self.callbacks.on_select_and_translate()
+        self._call("on_select_and_translate")
 
-    def _open_settings(self) -> None:
-        if self.callbacks.on_open_settings:
-            self.callbacks.on_open_settings()
+    def _translate_fullscreen(self) -> None:
+        self._call("on_translate_fullscreen")
 
     def _open_image(self) -> None:
-        if self.callbacks.on_open_image:
-            self.callbacks.on_open_image()
+        self._call("on_open_image")
+
+    def _select_region(self) -> None:
+        self._call("on_select_region")
+
+    def _open_settings(self) -> None:
+        self._call("on_open_settings")
+
+    def _quit(self) -> None:
+        self._call("on_quit")
 
     def _clear(self) -> None:
         self.target.delete("1.0", "end")
         self.source.delete("1.0", "end")
 
-    def _quit(self) -> None:
-        if self.callbacks.on_quit:
-            self.callbacks.on_quit()
+    def _toggle_layout(self) -> None:
+        self.set_compare_mode(not self.compare_mode)
+
+    def set_compare_mode(self, enabled: bool) -> None:
+        """切换"对话式"与"原文 | 译文"双栏对照。"""
+
+        self.compare_mode = bool(enabled)
+        if self.compare_mode:
+            self.source_label.configure(text="原文（与译文逐行对应）")
+        else:
+            self.source_label.configure(text="原文")
+        self.set_status("已切换到双栏对照" if self.compare_mode else "已切换到对话式")
 
     # ---- 显示 ----
     def set_status(self, text: str) -> None:
         self.status.configure(text=text)
+
+    def status_text(self) -> str:
+        return str(self.status.cget("text"))
 
     def show_source(self, lines: list[str], elapsed_ms: float) -> None:
         self.source.delete("1.0", "end")
@@ -234,28 +286,31 @@ class ResultWindow:
         self.source.insert("1.0", "\n".join(result.source_lines))
         self.target.delete("1.0", "end")
         self.target.insert("1.0", "\n".join(result.output_lines))
+
+        # 多行结果（通常是全屏翻译）自动切成双栏对照
+        if len(result.source_lines) >= 4 and not self.compare_mode:
+            self.compare_mode = True
+            self.source_label.configure(text="原文（与译文逐行对应）")
+
         parts = [
             f"OCR {result.ocr_ms:.0f} ms",
             f"翻译 {result.translate_ms:.0f} ms",
             f"已翻 {result.translated_count} 行",
+            self._provider_label(),
         ]
         if result.warnings:
             parts.append(f"提示：{result.warnings[0]}")
-        self.set_status(" | ".join(parts))
+        self.set_status(" · ".join(parts))
+
+    def on_poll(self) -> None:
+        if self.heartbeat is not None:
+            self.heartbeat()
 
     def drain(self, message_queue: "queue.Queue[tuple]", max_messages: int = 50) -> int:
-        """在主线程里消费后台线程的消息。
-
-        注意：这里只**执行**消息里的任务，绝不能再往同一个队列里补消息，
-        否则 drain 会自己喂自己、无限循环，把 Tk 主线程卡死。
-        max_messages 是额外的保险。
-        """
-
         return drain_queue(message_queue, self, max_messages)
 
     def poll(self, message_queue: "queue.Queue[tuple]", interval_ms: int = 60) -> None:
-        if self.heartbeat is not None:
-            self.heartbeat()
+        self.on_poll()
         self.drain(message_queue)
         self.root.after(interval_ms, lambda: self.poll(message_queue, interval_ms))
 

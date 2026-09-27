@@ -90,3 +90,22 @@ def test_drain_queue_executes_callables_and_is_bounded():
     assert handled == 10          # 有上限，不会卡死
     assert sink.statuses == ["开始"]
     assert len(executions) == 9   # 其余配额被"自喂"的消息吃掉
+
+
+def test_multiline_result_switches_to_compare_mode():
+    """全屏/多行结果自动切成双栏对照。"""
+
+    window = _window()
+    try:
+        assert window.compare_mode is False
+        window.show_result(
+            PipelineResult(
+                source_lines=["a", "b", "c", "d"],
+                output_lines=["甲", "乙", "丙", "丁"],
+            )
+        )
+        assert window.compare_mode is True
+        window.set_compare_mode(False)
+        assert window.compare_mode is False
+    finally:
+        window.root.destroy()
