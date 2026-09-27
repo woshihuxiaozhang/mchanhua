@@ -24,6 +24,13 @@ D:\Tools\Miniconda3\python.exe -m venv .venv
 
 ## 使用
 
+### 打包版（推荐）
+
+双击 `dist\mchanhua\mchanhua.exe`，右下角「设置」按钮里填 API Key（支持 DeepSeek 等多家服务）。
+打包与产物说明见 `docs/v3-打包说明.md`。
+
+### 源码运行
+
 ```powershell
 # 1) 生成配置文件，然后把 DeepSeek API key 填进 [translate] api_key
 .\.venv\Scripts\python.exe -m mchanhua config-init

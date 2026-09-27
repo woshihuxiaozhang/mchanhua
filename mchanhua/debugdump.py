@@ -8,10 +8,16 @@ from pathlib import Path
 from PIL import Image
 
 from mchanhua.logging_setup import get_logger
+from mchanhua.paths import debug_dir, ensure_dir
 
 
 def dump_dir() -> Path:
-    return Path(__file__).resolve().parents[1] / "tmp"
+    """调试文件位置：打包后 %APPDATA%\\mchanhua\\debug，开发时项目 tmp/。"""
+
+    try:
+        return ensure_dir(debug_dir())
+    except OSError:  # pragma: no cover
+        return Path(__file__).resolve().parents[1] / "tmp"
 
 
 def dump_last_run(image: Image.Image | None, ocr_result, result=None, directory: Path | None = None) -> None:

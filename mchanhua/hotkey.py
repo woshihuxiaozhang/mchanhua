@@ -36,6 +36,34 @@ def is_modifier_only(hotkey: str) -> bool:
     return bool(parts) and all(part in MODIFIERS for part in parts)
 
 
+def find_conflicts(bindings: dict[str, str]) -> list[str]:
+    """找出重复或互相干扰的热键。"""
+
+    problems: list[str] = []
+    seen: dict[str, list[str]] = {}
+    for action, hotkey in bindings.items():
+        try:
+            normalized = normalize_hotkey(hotkey)
+        except ValueError as exc:
+            problems.append(f"{action}：{exc}")
+            continue
+        seen.setdefault(normalized, []).append(action)
+
+    for hotkey, actions in seen.items():
+        if len(actions) > 1:
+            problems.append(f"{hotkey} 被重复设置：{' / '.join(actions)}")
+
+    for hotkey, actions in seen.items():
+        if not is_modifier_only(hotkey):
+            continue
+        for other, other_actions in seen.items():
+            if other != hotkey and other.startswith(hotkey + "+"):
+                problems.append(
+                    f"{hotkey}（{'/'.join(actions)}）会先于 {other}（{'/'.join(other_actions)}）触发"
+                )
+    return problems
+
+
 def reset_pressed_state() -> int:
     """清掉 keyboard 库记录的"当前按下的键"，返回清掉的个数。
 

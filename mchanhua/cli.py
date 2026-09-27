@@ -222,11 +222,30 @@ def cmd_config_path(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_settings(args: argparse.Namespace) -> int:
+    """打开设置窗口（服务 / API Key / 热键 / 界面），不启动取词小窗。"""
+
+    from mchanhua.config import resolve_config_path
+    from mchanhua.ui.settings_window import open_settings
+
+    enable_dpi_awareness()
+    config = load_config(args.config)
+    print(f"设置文件：{resolve_config_path(args.config)}")
+    open_settings(config)
+    return 0
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     from mchanhua.app import Application
     from mchanhua.config import resolve_config_path
+    from mchanhua.single_instance import SingleInstance
 
     enable_dpi_awareness()
+    guard = SingleInstance()
+    if not guard.acquire():
+        print("已经有一个 mchanhua 在运行了（同时只允许开一个，避免热键重复触发）")
+        get_logger().warning("检测到已有实例在运行，本次启动退出")
+        return 1
     config = load_config(args.config)
     if args.region:
         config.regions.fixed["tooltip"] = args.region
@@ -297,6 +316,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     config_path = sub.add_parser("config-path", help="打印配置文件路径")
     config_path.set_defaults(func=cmd_config_path)
+
+    settings = sub.add_parser("settings", help="打开设置窗口（服务/API Key/热键/界面）")
+    settings.set_defaults(func=cmd_settings)
 
     run = sub.add_parser("run", help="启动取词小窗（热键 + 框选）")
     run.add_argument("-r", "--region", help="预先指定固定采集区域 x,y,w,h")

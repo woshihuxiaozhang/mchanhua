@@ -61,6 +61,7 @@ class Application:
                 on_translate=self.request_translate,
                 on_select_and_translate=self.request_translate_region,
                 on_translate_fullscreen=self.request_translate_fullscreen,
+                on_open_settings=self.request_open_settings,
                 on_open_image=self.request_open_image,
                 on_select_region=self.request_select_region,
                 on_quit=self.quit,
@@ -125,6 +126,9 @@ class Application:
 
     def request_open_image(self) -> None:
         self.queue.put(("call", self.perform_open_image))
+
+    def request_open_settings(self) -> None:
+        self.queue.put(("call", self.open_settings))
 
     def request_select_region(self) -> None:
         get_logger().info("热键触发：只框选选区")
@@ -214,6 +218,29 @@ class Application:
         )
         if path:
             self.perform_translate_file(Path(path))
+
+    # ---- 设置 ----
+    def open_settings(self) -> None:
+        """打开设置窗口（与主窗口同一个 Tk root，模态）。"""
+
+        from mchanhua.ui.settings_window import open_settings
+
+        self.window.set_status("设置窗口已打开")
+        open_settings(self.config, on_saved=self.apply_config, parent=self.window.root)
+
+    def apply_config(self, config: Config) -> None:
+        """设置保存后：热键与服务立即重建，界面外观重启后生效。"""
+
+        self.config = config
+        self.translator = None
+        self.translator_error = None
+        self.hotkeys.stop()
+        self.hotkeys = HotkeyManager()
+        threading.Thread(
+            target=self._register_hotkeys, name="hotkey-reregister", daemon=True
+        ).start()
+        get_logger().info("设置已应用：热键重新注册，翻译服务已重建")
+        self.window.set_status("设置已更新：热键与翻译服务已生效（界面外观重启后生效）")
 
     def perform_translate_file(self, path: Path) -> None:
         """翻译一个图片文件。"""

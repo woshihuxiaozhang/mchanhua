@@ -10,13 +10,20 @@ import tempfile
 import threading
 from pathlib import Path
 
+from mchanhua.paths import app_dir, ensure_dir, is_frozen
+
 LOGGER_NAME = "mchanhua"
 _FAULT_FILE = None
 
 
 def project_log_path() -> Path:
-    """优先写到项目目录的 tmp/ 下，不可写时退回系统临时目录。"""
+    """日志位置：打包后写 %APPDATA%\\mchanhua\\logs，开发时写项目 tmp/。"""
 
+    if is_frozen() or os.environ.get("MCHANHUA_HOME"):
+        try:
+            return ensure_dir(app_dir() / "logs") / "mchanhua.log"
+        except OSError:  # pragma: no cover
+            return Path(tempfile.gettempdir()) / "mchanhua.log"
     root = Path(__file__).resolve().parents[1] / "tmp"
     try:
         root.mkdir(parents=True, exist_ok=True)
@@ -57,9 +64,10 @@ def setup_logging(path: Path | None = None, level: int = logging.INFO) -> Path:
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-    logger.addHandler(stream_handler)
+    if sys.stderr is not None:          # 打包成 GUI 程序后可能没有控制台
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(stream_handler)
 
     logger.propagate = False
     _install_exception_hooks(logger)
