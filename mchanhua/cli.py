@@ -210,8 +210,12 @@ LOG_PATH: Path | None = None
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mchanhua", description="Minecraft 屏幕取词汉化小工具")
-    parser.add_argument("--config", help="配置文件路径（默认 %%APPDATA%%\\mchanhua\\config.toml）")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument(
+        "--config",
+        help="配置文件路径（缺省优先用项目内 config.local.toml，其次 %%APPDATA%%\\mchanhua\\config.toml）",
+    )
+    # 故意不设 required：不给子命令时由 main() 给出中文提示，而不是 argparse 的英文报错
+    sub = parser.add_subparsers(dest="command")
 
     probe = sub.add_parser("probe", help="检查运行环境")
     probe.set_defaults(func=cmd_probe)
@@ -264,8 +268,18 @@ def main(argv: list[str] | None = None) -> int:
     configure_stdio()
     LOG_PATH = setup_logging()
     parser = build_parser()
+    effective = list(sys.argv[1:] if argv is None else argv)
     args = parser.parse_args(argv)
-    get_logger().info("命令：%s", " ".join(argv) if argv else "(无参数)")
+    get_logger().info("命令：%s", " ".join(effective) if effective else "(无子命令)")
+    if getattr(args, "command", None) is None:
+        # 不给子命令时给出明确提示，而不是 argparse 的原始报错
+        parser.print_help()
+        print()
+        print("提示：要启动取词小窗请用  mchanhua run")
+        print("      想先看看环境是否正常用  mchanhua probe")
+        print("      最省事的办法是直接双击项目目录里的「启动.cmd」")
+        get_logger().warning("未指定子命令，已打印用法提示")
+        return 2
     try:
         return args.func(args)
     except OcrUnavailable as exc:

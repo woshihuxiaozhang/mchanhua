@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+import faulthandler
+import os
 import sys
 import tempfile
 import threading
 from pathlib import Path
 
 LOGGER_NAME = "mchanhua"
+_FAULT_FILE = None
 
 
 def project_log_path() -> Path:
@@ -60,6 +63,16 @@ def setup_logging(path: Path | None = None, level: int = logging.INFO) -> Path:
 
     logger.propagate = False
     _install_exception_hooks(logger)
+
+    # 原生崩溃（访问冲突之类）不会走 Python 异常，用它把堆栈也写进同一个日志
+    global _FAULT_FILE
+    try:
+        _FAULT_FILE = open(target, "a", encoding="utf-8", buffering=1)
+        faulthandler.enable(file=_FAULT_FILE, all_threads=True)
+    except OSError:  # pragma: no cover - 极少数权限问题
+        pass
+
+    logger.info("进程启动：pid=%d，命令行=%s", os.getpid(), " ".join(sys.argv[1:]))
     return target
 
 

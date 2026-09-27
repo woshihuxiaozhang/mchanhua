@@ -29,12 +29,16 @@ class Application:
         window=None,
     ) -> None:
         enable_dpi_awareness()
+        logger = get_logger()
         self.config = config
         self.use_hotkeys = use_hotkeys
+        logger.info("步骤 1/3：创建采集后端")
         self.grabber = grabber or create_grabber(config.capture.backend, config.capture.monitor)
+        logger.info("步骤 2/3：加载 OCR 引擎（首次加载模型约需 1~2 秒）")
         self.ocr = ocr or create_engine(
             config.ocr.backend, config.ocr.language, config.ocr.upscale, invert=config.ocr.invert
         )
+        logger.info("步骤 3/3：创建小窗界面")
         self.translator = None
         self.translator_error: str | None = None
         self.cache_path = cache_path
@@ -49,7 +53,7 @@ class Application:
             ),
         )
         self.last_region: Region | None = config.regions.fixed_region("tooltip")
-        get_logger().info(
+        logger.info(
             "初始化完成：采集后端 %s，OCR 后端 %s，标定区域 %s，跟随光标区域 %s",
             self.grabber.name,
             getattr(self.ocr, "name", "?"),

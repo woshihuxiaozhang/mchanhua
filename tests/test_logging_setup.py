@@ -43,3 +43,13 @@ def test_setup_logging_is_idempotent(workdir):
     logger = get_logger()
     file_handlers = [h for h in logger.handlers if isinstance(h, logging.FileHandler)]
     assert len(file_handlers) == 1, "重复调用不应叠加文件 handler"
+
+
+def test_setup_logging_records_pid(workdir):
+    import os
+
+    target = workdir / "mchanhua.log"
+    setup_logging(target)
+    for handler in get_logger().handlers:
+        handler.flush()
+    assert f"pid={os.getpid()}" in target.read_text(encoding="utf-8")
