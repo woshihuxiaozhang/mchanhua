@@ -7,6 +7,8 @@ from mchanhua.config import (
     dumps,
     load_config,
     loads,
+    project_config_path,
+    resolve_config_path,
     save_config,
 )
 
@@ -81,3 +83,23 @@ def test_default_config_path_points_outside_repo():
     path = default_config_path()
     assert path.name == "config.toml"
     assert path.parent.name == "mchanhua"
+
+
+def test_project_local_config_takes_priority(workdir, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(workdir / "appdata"))
+    local = project_config_path(workdir)
+    assert not local.exists()
+    # 没有项目内配置时用 %APPDATA%
+    assert resolve_config_path(None, workdir) == default_config_path()
+
+    save_config(Config(), local)
+    assert local.exists()
+    assert resolve_config_path(None, workdir) == local
+    assert load_config(None, workdir).translate.model == "deepseek-chat"
+
+
+def test_explicit_path_wins(workdir):
+    explicit = workdir / "custom.toml"
+    save_config(Config(), explicit)
+    save_config(Config(), project_config_path(workdir))
+    assert resolve_config_path(explicit, workdir) == explicit

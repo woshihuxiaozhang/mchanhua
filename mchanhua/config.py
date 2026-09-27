@@ -29,6 +29,13 @@ def default_config_path() -> Path:
     return Path(base) / APP_DIR_NAME / "config.toml"
 
 
+def project_config_path(project_dir: Path | None = None) -> Path:
+    """项目目录下的本地配置，放在仓库里方便直接编辑（已被 .gitignore 排除）。"""
+
+    root = project_dir or Path(__file__).resolve().parents[1]
+    return Path(root) / "config.local.toml"
+
+
 @dataclass
 class HotkeysConfig:
     translate: str = "ctrl+alt+q"
@@ -172,8 +179,19 @@ def loads(text: str) -> Config:
     return config
 
 
-def load_config(path: Path | None = None) -> Config:
-    target = path or default_config_path()
+def resolve_config_path(path: Path | None = None, project_dir: Path | None = None) -> Path:
+    """确定实际使用的配置文件：显式指定 > 项目内 config.local.toml > %APPDATA%。"""
+
+    if path is not None:
+        return Path(path)
+    local = project_config_path(project_dir)
+    if local.exists():
+        return local
+    return default_config_path()
+
+
+def load_config(path: Path | None = None, project_dir: Path | None = None) -> Config:
+    target = resolve_config_path(path, project_dir)
     if not target.exists():
         config = Config()
         config.validate()

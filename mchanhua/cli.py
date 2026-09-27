@@ -129,15 +129,25 @@ def cmd_ocr_screen(args: argparse.Namespace) -> int:
 
 def cmd_config_init(args: argparse.Namespace) -> int:
     config = Config()
-    path = save_config(config, args.config)
+    if args.config:
+        target = args.config
+    elif args.global_config:
+        from mchanhua.config import default_config_path
+
+        target = default_config_path()
+    else:
+        from mchanhua.config import project_config_path
+
+        target = project_config_path()
+    path = save_config(config, target)
     print(f"已写入默认配置：{path}")
     return 0
 
 
 def cmd_config_path(args: argparse.Namespace) -> int:
-    from mchanhua.config import default_config_path
+    from mchanhua.config import resolve_config_path
 
-    print(args.config or default_config_path())
+    print(resolve_config_path(args.config))
     return 0
 
 
@@ -180,6 +190,12 @@ def build_parser() -> argparse.ArgumentParser:
     ocr_screen.set_defaults(func=cmd_ocr_screen)
 
     config_init = sub.add_parser("config-init", help="写出默认配置文件")
+    config_init.add_argument(
+        "--global",
+        dest="global_config",
+        action="store_true",
+        help="写到 %%APPDATA%%\\mchanhua\\config.toml，而不是项目目录下的 config.local.toml",
+    )
     config_init.set_defaults(func=cmd_config_init)
 
     config_path = sub.add_parser("config-path", help="打印配置文件路径")
