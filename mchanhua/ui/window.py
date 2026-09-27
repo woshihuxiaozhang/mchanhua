@@ -167,16 +167,24 @@ class ResultWindow:
 
         self.source_area = ctk.CTkFrame(self.body, corner_radius=0, fg_color="transparent")
         self.source_area.pack(fill="x", padx=6, pady=(0, 6))
+        header = ctk.CTkFrame(self.source_area, corner_radius=0, fg_color="transparent")
+        header.pack(fill="x")
         self.source_label = ctk.CTkLabel(
-            self.source_area, text="原文", anchor="w", font=self.meta_font,
-            text_color=theme.text_dim,
+            header, text="原文", anchor="w", font=self.meta_font, text_color=theme.text_dim
         )
-        self.source_label.pack(fill="x")
+        self.source_label.pack(side="left")
+        self.source_toggle = ctk.CTkButton(
+            header, text="收起", width=44, height=20, corner_radius=6, font=self.meta_font,
+            fg_color="transparent", hover_color=theme.button_background,
+            text_color=theme.text_dim, command=self._toggle_source,
+        )
+        self.source_toggle.pack(side="right")
         self.source = ctk.CTkTextbox(
             self.source_area, height=64, wrap="word", font=self.source_font,
             fg_color="transparent", text_color=theme.text_dim, corner_radius=6, border_width=0,
         )
         self.source.pack(fill="x")
+        self.source_visible = True
 
     def _build_actions(self) -> None:
         theme = self.theme
@@ -258,6 +266,18 @@ class ResultWindow:
 
     def _toggle_layout(self) -> None:
         self.set_compare_mode(not self.compare_mode)
+
+    def _toggle_source(self) -> None:
+        """译文为主：原文可以收起，需要核对时再展开。"""
+
+        self.source_visible = not self.source_visible
+        if self.source_visible:
+            self.source.pack(fill="x")
+            self.source_toggle.configure(text="收起")
+        else:
+            self.source.pack_forget()
+            self.source_toggle.configure(text="展开")
+        self.set_status("已展开原文" if self.source_visible else "已收起原文（点「展开」可恢复）")
 
     def set_compare_mode(self, enabled: bool) -> None:
         """切换"对话式"与"原文 | 译文"双栏对照。"""
