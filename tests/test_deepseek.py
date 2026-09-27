@@ -171,10 +171,29 @@ def test_http_error_raises():
     assert "401" in str(excinfo.value)
 
 
-def test_missing_api_key_raises():
+def test_api_key_required_for_keyed_provider():
+    from mchanhua.config import TranslateConfig
+    from mchanhua.translate import create_translator
+
     with pytest.raises(TranslationError) as excinfo:
-        DeepSeekTranslator(api_key="")
+        create_translator(TranslateConfig(provider="deepseek", cache_enabled=False), api_key="")
     assert "API key" in str(excinfo.value)
+
+
+def test_keyless_provider_allows_empty_key():
+    """Ollama 这类本地服务不需要 key。"""
+
+    from mchanhua.config import TranslateConfig
+    from mchanhua.translate import create_translator
+
+    config = TranslateConfig(
+        provider="ollama",
+        base_url="http://localhost:11434/v1",
+        model="qwen2.5:7b",
+        cache_enabled=False,
+    )
+    translator = create_translator(config, api_key="")
+    assert translator.name.startswith("openai-compatible")
 
 
 def test_empty_input_short_circuits():

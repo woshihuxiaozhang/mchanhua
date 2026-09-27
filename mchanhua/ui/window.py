@@ -13,6 +13,7 @@ from typing import Callable
 
 from mchanhua.config import Config
 from mchanhua.pipeline import PipelineResult
+from mchanhua.ui.theme import Theme
 
 
 def resolve_position(config, screen_size: tuple[int, int]) -> tuple[int, int]:
@@ -78,51 +79,53 @@ class ResultWindow:
         self.config = config
         self.callbacks = callbacks or WindowCallbacks()
         self.heartbeat = None
+        self.theme = Theme.from_config(config.ui)
+        theme = self.theme
         self.root = tk.Tk()
         self.root.title("mchanhua 取词翻译")
-        self.root.attributes("-topmost", bool(config.ui.always_on_top))
+        self.root.attributes("-topmost", bool(theme.always_on_top))
         # 透明度放到窗口映射之后再设：映射前设置分层窗口属性，在部分环境下会导致窗口不重绘
         self.root.after(200, self._apply_alpha)
 
-        width, height = config.ui.width, config.ui.height
+        width, height = theme.width, theme.height
         x, y = resolve_position(config.ui, (self.root.winfo_screenwidth(), self.root.winfo_screenheight()))
         self.root.geometry(f"{width}x{height}+{x}+{y}")
         self.root.minsize(320, 220)
-        self.root.configure(bg="#1b1b1f")
+        self.root.configure(bg=theme.background)
 
-        family = config.ui.font_family
+        family = theme.font_family
         if family not in tkfont.families():
             family = "Microsoft YaHei"
-        self.target_font = tkfont.Font(family=family, size=config.ui.font_size + 2)
-        self.source_font = tkfont.Font(family=family, size=max(8, config.ui.font_size - 2))
+        self.target_font = tkfont.Font(family=family, size=theme.result_font_size)
+        self.source_font = tkfont.Font(family=family, size=theme.source_font_size)
 
         self.status = tk.Label(
             self.root,
             text="就绪：把鼠标移到物品上，按热键取词",
             anchor="w",
-            bg="#1b1b1f",
-            fg="#9ad0ff",
+            bg=theme.background,
+            fg=theme.accent,
             font=self.source_font,
-            padx=8,
+            padx=theme.padding,
             pady=4,
         )
         self.status.pack(fill="x")
 
-        body = tk.Frame(self.root, bg="#1b1b1f")
-        body.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+        body = tk.Frame(self.root, bg=theme.background)
+        body.pack(fill="both", expand=True, padx=theme.padding, pady=(0, 4))
 
-        target_area = tk.Frame(body, bg="#1b1b1f")
+        target_area = tk.Frame(body, bg=theme.background)
         target_area.pack(fill="both", expand=True)
 
         self.target = tk.Text(
             target_area,
             wrap="word",
             font=self.target_font,
-            bg="#101014",
-            fg="#f2f2f2",
-            insertbackground="#f2f2f2",
+            bg=theme.panel,
+            fg=theme.text,
+            insertbackground=theme.text,
             relief="flat",
-            padx=8,
+            padx=theme.padding,
             pady=6,
         )
         scrollbar = tk.Scrollbar(target_area, command=self.target.yview)
@@ -135,10 +138,10 @@ class ResultWindow:
             height=4,
             wrap="word",
             font=self.source_font,
-            bg="#101014",
-            fg="#8a8f98",
+            bg=theme.panel,
+            fg=theme.text_dim,
             relief="flat",
-            padx=8,
+            padx=theme.padding,
             pady=4,
         )
         self.source.pack(fill="x", pady=(6, 0))
@@ -148,10 +151,20 @@ class ResultWindow:
             (("只框选", self._select_region), ("打开图片", self._open_image), ("清空", self._clear), ("退出", self._quit)),
         )
         for row in button_rows:
-            bar = tk.Frame(self.root, bg="#1b1b1f")
-            bar.pack(fill="x", padx=8, pady=(0, 6))
+            bar = tk.Frame(self.root, bg=theme.background)
+            bar.pack(fill="x", padx=theme.padding, pady=(0, 6))
             for text, command in row:
-                tk.Button(bar, text=text, command=command, font=self.source_font).pack(side="left", padx=(0, 6))
+                tk.Button(
+                    bar,
+                    text=text,
+                    command=command,
+                    font=self.source_font,
+                    bg=theme.button_background,
+                    fg=theme.button_text,
+                    activebackground=theme.accent,
+                    activeforeground=theme.panel,
+                    relief="flat",
+                ).pack(side="left", padx=(0, 6))
 
         for widget in (self.status, body):
             widget.bind("<Button-1>", self._start_drag)
@@ -160,7 +173,7 @@ class ResultWindow:
 
     def _apply_alpha(self) -> None:
         try:
-            self.root.attributes("-alpha", float(self.config.ui.opacity))
+            self.root.attributes("-alpha", float(self.theme.opacity))
         except tk.TclError:  # pragma: no cover - 少数平台不支持
             pass
 

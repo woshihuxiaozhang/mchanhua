@@ -14,18 +14,23 @@ from mchanhua.translate.base import (
     split_translatable,
 )
 from mchanhua.translate.cache import TranslationCache
-from mchanhua.translate.deepseek import DeepSeekTranslator
 from mchanhua.translate.glossary import DEFAULT_GLOSSARY
+from mchanhua.translate.openai_compat import OpenAICompatibleTranslator
+from mchanhua.translate.providers import PRESETS, ProviderPreset, find_preset, guess_provider
 
 __all__ = [
     "CachingTranslator",
-    "DeepSeekTranslator",
+    "OpenAICompatibleTranslator",
+    "PRESETS",
+    "ProviderPreset",
     "TranslationCache",
     "TranslationError",
     "Translator",
     "contains_cjk",
     "create_translator",
     "DEFAULT_GLOSSARY",
+    "find_preset",
+    "guess_provider",
     "should_translate",
     "split_translatable",
 ]
@@ -68,21 +73,29 @@ class CachingTranslator:
 
 def create_translator(
     config: TranslateConfig,
-    api_key: str,
+    api_key: str = "",
     cache_path: Path | None = None,
     glossary: dict[str, str] | None = None,
 ) -> Translator:
-    if config.provider != "deepseek":
-        raise TranslationError(f"暂不支持的翻译服务：{config.provider}")
+    """按配置创建翻译器（支持任何 OpenAI 兼容服务）。"""
 
     merged_glossary = {**DEFAULT_GLOSSARY, **(glossary or {})}
-    engine = DeepSeekTranslator(
+    preset = find_preset(config.provider)
+    base_url = config.base_url or (preset.base_url if preset else "")
+    model = config.model or (preset.model if preset else "")
+    if preset is not None and preset.needs_key and not api_key:
+        raise TranslationError(
+            f"{preset.label} 需要 API key：请在设置里填好，或改用免 key 的服务（如 Ollama）"
+        )
+
+    engine = OpenAICompatibleTranslator(
         api_key=api_key,
-        base_url=config.base_url,
-        model=config.model,
+        base_url=base_url,
+        model=model,
         timeout=config.timeout,
         temperature=config.temperature,
         glossary=merged_glossary,
+        provider=config.provider,
     )
     if not config.cache_enabled:
         return engine
