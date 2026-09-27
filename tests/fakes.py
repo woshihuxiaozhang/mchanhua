@@ -53,16 +53,18 @@ class DecodingTranslator:
 class FakeWindow:
     def __init__(self) -> None:
         self.statuses: list[str] = []
+        self.results: list[object] = []
+        self.sources: list[list[str]] = []
         self.root = FakeTkRoot()
 
     def set_status(self, text: str) -> None:
         self.statuses.append(text)
 
-    def show_source(self, lines, elapsed_ms) -> None:  # pragma: no cover - 由队列驱动
-        pass
+    def show_source(self, lines, elapsed_ms) -> None:
+        self.sources.append(list(lines))
 
-    def show_result(self, result) -> None:  # pragma: no cover
-        pass
+    def show_result(self, result) -> None:
+        self.results.append(result)
 
     def poll(self, message_queue, interval_ms: int = 60) -> None:  # pragma: no cover
         pass

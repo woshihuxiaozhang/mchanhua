@@ -1,12 +1,14 @@
 """跨线程回归测试：每次取词都会新开工作线程，缓存与控制器必须扛得住。"""
 
 import threading
+import time
 
 from mchanhua.app import Application
 from mchanhua.config import Config
 from mchanhua.geometry import Region
 from mchanhua.translate.cache import TranslationCache
-from tests.fakes import FakeGrabber, FakeOcr, FakeWindow, wait_for
+from mchanhua.ui.window import drain_queue
+from tests.fakes import DecodingTranslator, FakeGrabber, FakeOcr, FakeWindow, wait_for
 
 
 def test_cache_usable_from_multiple_threads(workdir):
@@ -84,4 +86,31 @@ def test_second_request_while_busy_is_ignored():
         app.perform_translate(Region(0, 0, 10, 10))
     finally:
         app._translate_lock.release()
-    assert any("还在处理中" in text for text in window.statuses)
+    assert any("已记下这次请求" in text for text in window.statuses)
+    assert app._pending_jobs == [("region", Region(0, 0, 10, 10))]
+
+
+def test_pending_request_runs_after_current_finishes():
+    window = FakeWindow()
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=FakeOcr(),
+        window=window,
+    )
+    app.translator = DecodingTranslator()
+
+    app.perform_translate(Region(0, 0, 40, 40))     # 第一次开始跑
+    app.perform_translate(Region(50, 50, 40, 40))   # 立刻再按一次 → 排队
+    assert app._pending_jobs
+
+    # 模拟界面轮询：把队列里的消息（包括排队的 "call" 任务）执行掉
+    deadline = time.monotonic() + 20
+    while len(window.results) < 2 and time.monotonic() < deadline:
+        drain_queue(app.queue, window)
+        time.sleep(0.05)
+
+    assert len(window.results) == 2, "排队的那次也应该跑完"
+    # 默认 screen 模式：整屏识别
+    assert app.grabber.requests[-1].to_csv() == "0,0,2560,1440"

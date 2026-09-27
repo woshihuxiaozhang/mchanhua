@@ -1,20 +1,20 @@
-"""自动扩边（解决"翻译不全"）与调试落盘的测试。"""
+"""选区取词：向外多抓一圈 + 只保留选区内的完整行；以及调试落盘。"""
 
 import json
 
 from PIL import Image
 
 from mchanhua.app import Application
-from mchanhua.autoregion import capture_with_autoexpand, ocr_score
+from mchanhua.autoregion import (
+    capture_padded_and_filter,
+    filter_lines_in_region,
+    padded_region,
+)
 from mchanhua.config import Config, load_config, save_config
 from mchanhua.debugdump import dump_last_run
 from mchanhua.geometry import Region
 from mchanhua.ocr.base import OcrLine, OcrResult
-from mchanhua.pipeline import (
-    clipped_directions,
-    expand_region_for_clipping,
-    run_from_ocr,
-)
+from mchanhua.pipeline import run_from_ocr
 from tests.fakes import DecodingTranslator, FakeGrabber, FakeWindow, wait_for
 
 MONITOR = Region(0, 0, 2560, 1440)
@@ -24,69 +24,137 @@ def _result(lines: list[OcrLine]) -> OcrResult:
     return OcrResult(lines=lines, elapsed_ms=1.0, backend="fake")
 
 
-# ---- 纯函数 ----
+# ---- 多抓一圈 ----
 
 
-def test_clipped_directions_detects_each_edge():
-    size = (200, 100)
-    # 右边贴住 200 的边界
-    assert clipped_directions(_result([OcrLine("x", Region(10, 10, 190, 20))]), size) == {"right"}
-    assert clipped_directions(_result([OcrLine("x", Region(0, 10, 100, 20))]), size) == {"left"}
-    assert clipped_directions(_result([OcrLine("x", Region(50, 0, 100, 20))]), size) == {"top"}
-    assert clipped_directions(_result([OcrLine("x", Region(50, 80, 100, 20))]), size) == {"bottom"}
-    assert clipped_directions(_result([OcrLine("x", Region(50, 40, 100, 20))]), size) == set()
-    assert clipped_directions(_result([OcrLine("x", None)]), size) == set()
+def test_padded_region_grows_by_padding():
+    assert padded_region(Region(300, 400, 200, 100), MONITOR, pad=80).to_csv() == "220,320,360,260"
 
 
-def test_expand_region_for_clipping_grows_only_requested_edges():
-    region = Region(100, 100, 300, 200)
-    expanded = expand_region_for_clipping(region, {"right", "bottom"}, MONITOR, step=20)
-    assert expanded.to_csv() == "100,100,320,220"
-    # 左/上方向：坐标前移、尺寸同步变大
-    expanded = expand_region_for_clipping(region, {"left", "top"}, MONITOR, step=20)
-    assert expanded.to_csv() == "80,80,320,220"
+def test_padded_region_is_clamped_to_monitor():
+    assert padded_region(Region(0, 0, 100, 100), MONITOR, pad=80).to_csv() == "0,0,180,180"
+    assert padded_region(Region(2500, 1400, 60, 40), MONITOR, pad=80).to_csv() == "2420,1320,140,120"
 
 
-def test_expand_region_clamps_to_monitor_and_reports_no_change():
-    # 已经贴着屏幕左上角，无法再向外扩
-    region = Region(0, 0, 300, 200)
-    assert expand_region_for_clipping(region, {"left", "top"}, MONITOR, step=20) is None
-    # 贴右下角同理
-    corner = Region(2360, 1240, 200, 200)
-    assert expand_region_for_clipping(corner, {"right", "bottom"}, MONITOR, step=20) is None
+# ---- 按选区筛选 ----
 
 
-def test_run_from_ocr_skips_recognition():
-    result = run_from_ocr(_result([OcrLine("Steel Ingot")]), DecodingTranslator())
-    assert result.output_lines == ["[tognI leetS]"]
-    assert result.ocr_backend == "fake"
+def test_filter_keeps_lines_whose_center_is_inside_region():
+    capture = Region(100, 100, 400, 300)
+    region = Region(200, 200, 100, 50)
+    # 屏幕中心 = (100+130+20, 100+115+15) = (250, 230)，落在选区内
+    inside = OcrLine("inside", Region(130, 115, 40, 30))
+    outside = OcrLine("outside", Region(10, 10, 40, 30))
+
+    filtered = filter_lines_in_region(_result([inside, outside]), capture, region)
+
+    assert [line.text for line in filtered.lines] == ["inside"]
+    assert filtered.backend == "fake"
 
 
-# ---- 控制器：自动扩边 ----
+def test_filter_keeps_lines_without_box():
+    filtered = filter_lines_in_region(
+        _result([OcrLine("no box")]), Region(0, 0, 100, 100), Region(0, 0, 50, 50)
+    )
+    assert [line.text for line in filtered.lines] == ["no box"]
 
 
-class ClippedThenFullOcr:
-    """第一次返回"贴住右边缘"的一行，扩边后返回完整的一行。"""
+def test_filter_keeps_long_line_when_region_covers_only_part_of_it():
+    """长行的中心点可能在选区外（例如 1800px 宽的行、选区只盖住左半），但重叠够多也要保留。"""
 
-    name = "clipped-fake"
+    capture = Region(0, 0, 2000, 400)
+    region = Region(0, 100, 900, 60)
+    long_line = OcrLine("a very long chat line", Region(0, 105, 1800, 50))
 
-    def __init__(self) -> None:
-        self.calls = 0
+    filtered = filter_lines_in_region(_result([long_line]), capture, region)
 
-    def recognize(self, image):
-        self.calls += 1
-        if self.calls == 1:
-            return _result(
-                [OcrLine("You are one step", Region(10, 10, image.width - 12, 20))]
-            )
+    assert [line.text for line in filtered.lines] == ["a very long chat line"]
+
+
+def test_keeps_whole_line_when_region_is_far_too_small_screen_mode():
+    """默认 screen 模式：整屏识别后按选区筛选，选区再小也能拿到完整的一行。"""
+
+    region = Region(300, 300, 200, 40)
+
+    def recognize(image):
+        assert image.width == MONITOR.width, "screen 模式应该抓整屏"
+        # 一行文字横跨选区左右边界（坐标相对整屏）
+        return _result([OcrLine("You shouldn't be here.", Region(250, 305, 400, 30))])
+
+    capture, _image, result = capture_padded_and_filter(
+        region,
+        MONITOR,
+        grab=lambda target: Image.new("RGB", (target.width, target.height)),
+        recognize=recognize,
+    )
+
+    assert capture == MONITOR
+    assert [line.text for line in result.lines] == ["You shouldn't be here."]
+
+
+def test_padded_mode_still_works_when_configured():
+    """配置成 padded 时只抓选区外扩的一圈（快，但横向切掉的长句补不回来）。"""
+
+    region = Region(300, 300, 200, 40)
+
+    def recognize(image):
+        # 一行文字横跨选区左右边界（坐标相对抓图）
+        return _result([OcrLine("You shouldn't be here.", Region(10, 65, image.width - 20, 30))])
+
+    capture, _image, result = capture_padded_and_filter(
+        region,
+        MONITOR,
+        grab=lambda target: Image.new("RGB", (target.width, target.height)),
+        recognize=recognize,
+        mode="padded",
+    )
+
+    assert capture.to_csv() == "220,220,360,200"
+    assert [line.text for line in result.lines] == ["You shouldn't be here."]
+
+
+def test_capture_padded_and_filter_drops_far_away_lines():
+    region = Region(300, 300, 200, 40)
+
+    def recognize(image):
         return _result(
             [
-                OcrLine(
-                    "You are one step closer to salvation",
-                    Region(10, 10, max(1, image.width - 40), 20),
-                )
+                OcrLine("keep me", Region(10, 65, 200, 30)),
+                OcrLine("far away", Region(10, 5, 200, 30)),
             ]
         )
+
+    _capture, _image, result = capture_padded_and_filter(
+        region,
+        MONITOR,
+        grab=lambda target: Image.new("RGB", (target.width, target.height)),
+        recognize=recognize,
+        mode="padded",
+    )
+
+    assert [line.text for line in result.lines] == ["keep me"]
+
+
+def test_fullscreen_path_uses_monitor_and_does_not_filter():
+    capture, _image, result = capture_padded_and_filter(
+        None,
+        MONITOR,
+        grab=lambda target: Image.new("RGB", (target.width, target.height)),
+        recognize=lambda image: _result([OcrLine("chat line", Region(5, 5, image.width, 20))]),
+    )
+
+    assert capture is None                      # 整屏模式不记抓图区域
+    assert [line.text for line in result.lines] == ["chat line"]
+
+
+# ---- 控制器接线 ----
+
+
+class _FakeOcr:
+    name = "fake-ocr"
+
+    def recognize(self, image):
+        return _result([OcrLine("Steel Ingot"), OcrLine("磁石")])
 
 
 def _app(workdir, ocr):
@@ -102,35 +170,27 @@ def _app(workdir, ocr):
     )
 
 
-def test_worker_auto_expands_region_when_text_touches_edge(workdir):
-    app = _app(workdir, ClippedThenFullOcr())
+def test_worker_captures_full_screen_by_default(workdir):
+    app = _app(workdir, _FakeOcr())
     app.translator = DecodingTranslator()
-    app.config.regions.set_custom_region(Region(100, 100, 300, 40))
-
-    app.perform_translate()
-    messages = wait_for(app, "result")
-
-    # 第一次抓 300x40，发现文字贴右边 → 扩 28px 后重抓
-    assert [region.to_csv() for region in app.grabber.requests] == ["100,100,300,40", "100,100,328,40"]
-    result = next(message[1] for message in messages if message[0] == "result")
-    assert result.source_lines == ["You are one step closer to salvation"]
-
-
-def test_worker_does_not_expand_when_text_is_inside(workdir):
-    class InsideOcr:
-        name = "inside-fake"
-
-        def recognize(self, image):
-            return _result([OcrLine("All good here", Region(20, 10, image.width - 60, 20))])
-
-    app = _app(workdir, InsideOcr())
-    app.translator = DecodingTranslator()
-    app.config.regions.set_custom_region(Region(100, 100, 300, 40))
+    app.config.regions.set_custom_region(Region(300, 400, 500, 300))
 
     app.perform_translate()
     wait_for(app, "result")
 
-    assert len(app.grabber.requests) == 1
+    assert app.grabber.requests[-1].to_csv() == "0,0,2560,1440"
+
+
+def test_worker_respects_padded_capture_mode(workdir):
+    app = _app(workdir, _FakeOcr())
+    app.translator = DecodingTranslator()
+    app.config.ocr.capture_mode = "padded"
+    app.config.regions.set_custom_region(Region(300, 400, 500, 300))
+
+    app.perform_translate()
+    wait_for(app, "result")
+
+    assert app.grabber.requests[-1].to_csv() == "220,320,660,460"
 
 
 # ---- 调试落盘 ----
@@ -148,87 +208,3 @@ def test_dump_last_run_writes_capture_and_json(workdir):
     assert payload["size"] == [120, 40]
     assert payload["lines"][0]["text"] == "Hello"
     assert payload["pairs"] == [{"src": "Hello", "dst": "[olleH]"}]
-
-
-# ---- 自动扩边的取舍策略 ----
-
-
-def test_ocr_score_counts_characters():
-    assert ocr_score(_result([])) == 0
-    assert ocr_score(_result([OcrLine("abc"), OcrLine("de")])) == 5
-
-
-def test_autoexpand_adopts_better_result():
-    def recognize(image):
-        if image.width <= 700:
-            # 词框贴住右边缘（x + width == 图片宽度），触发扩边
-            return _result([OcrLine("rou are one step", Region(5, 5, image.width - 5, 20))])
-        return _result([OcrLine("You are one step closer", Region(5, 5, image.width - 5, 20))])
-
-    region, image, result = capture_with_autoexpand(
-        Region(0, 0, 700, 50),
-        MONITOR,
-        grab=lambda target: Image.new("RGB", (target.width, target.height)),
-        recognize=recognize,
-    )
-
-    assert region.to_csv() == "0,0,728,50"          # 向右扩了 28px
-    assert result.lines[0].text == "You are one step closer"
-
-
-def test_autoexpand_keeps_original_when_result_gets_worse():
-    """模糊文字扩边后往往更差，这时必须保持原样，否则会越弄越糟。"""
-
-    def recognize(image):
-        if image.width <= 700:
-            return _result([OcrLine("rou are one step clos", Region(5, 5, image.width - 5, 20))])
-        return _result([OcrLine("Ster.", Region(5, 5, image.width - 5, 20))])
-
-    region, image, result = capture_with_autoexpand(
-        Region(0, 0, 700, 50),
-        MONITOR,
-        grab=lambda target: Image.new("RGB", (target.width, target.height)),
-        recognize=recognize,
-    )
-
-    assert region.to_csv() == "0,0,700,50"
-    assert image.size == (700, 50)
-    assert result.lines[0].text == "rou are one step clos"
-
-
-def test_autoexpand_skips_when_text_is_inside():
-    calls: list[int] = []
-
-    def recognize(image):
-        calls.append(image.width)
-        return _result([OcrLine("All good", Region(20, 10, image.width - 60, 20))])
-
-    region, _image, _ocr = capture_with_autoexpand(
-        Region(0, 0, 700, 50),
-        MONITOR,
-        grab=lambda target: Image.new("RGB", (target.width, target.height)),
-        recognize=recognize,
-    )
-
-    assert calls == [700]
-    assert region.to_csv() == "0,0,700,50"
-
-
-def test_autoexpand_stops_at_screen_edge():
-    """整屏识别时文字本来就贴着屏幕边，不应反复扩边。"""
-
-    calls: list[int] = []
-
-    def recognize(image):
-        calls.append(image.width)
-        return _result([OcrLine("edge text", Region(0, 0, image.width, 20))])
-
-    region, _image, _ocr = capture_with_autoexpand(
-        None,
-        MONITOR,
-        grab=lambda target: Image.new("RGB", (target.width, target.height)),
-        recognize=recognize,
-    )
-
-    assert calls == [MONITOR.width]
-    assert region == MONITOR

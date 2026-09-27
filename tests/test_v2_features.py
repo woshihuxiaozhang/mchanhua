@@ -59,7 +59,8 @@ def test_translate_uses_saved_custom_region(workdir: Path):
     app.perform_translate()
     wait_for(app, "result")
 
-    assert app.grabber.requests[-1].to_csv() == "300,400,500,300"
+    # 默认 screen 模式：整屏识别，再按选区筛选要翻译的行
+    assert app.grabber.requests[-1].to_csv() == "0,0,2560,1440"
 
 
 def test_translate_falls_back_to_cursor_region_when_no_custom(workdir: Path):
@@ -67,8 +68,7 @@ def test_translate_falls_back_to_cursor_region_when_no_custom(workdir: Path):
     app.perform_translate()
     wait_for(app, "result")
 
-    # 逻辑 (1024,576) → 物理 (1280,720)，再加默认偏移 -280,-20
-    assert app.grabber.requests[-1].to_csv() == "1000,700,560,440"
+    assert app.grabber.requests[-1].to_csv() == "0,0,2560,1440"
 
 
 def test_fullscreen_translate_covers_whole_monitor(workdir: Path):
@@ -148,7 +148,7 @@ def test_select_and_translate_uses_the_new_region(workdir: Path, monkeypatch):
     app.perform_select_and_translate()
     messages = wait_for(app, "result")
 
-    assert app.grabber.requests[-1].to_csv() == "50,60,400,300"
+    assert app.grabber.requests[-1].to_csv() == "0,0,2560,1440"
     assert app.config.regions.custom_region().to_csv() == "50,60,400,300"
     assert 'custom = "50,60,400,300"' in Path(app.config_path).read_text(encoding="utf-8")
     assert any(message[0] == "result" for message in messages)
@@ -176,4 +176,4 @@ def test_select_region_only_does_not_translate(workdir: Path, monkeypatch):
 
     app.perform_translate()          # 等价于按 Ctrl+Alt
     wait_for(app, "result")
-    assert app.grabber.requests[-1].to_csv() == "7,8,90,100"
+    assert app.grabber.requests[-1].to_csv() == "0,0,2560,1440"

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from mchanhua.autoregion import capture_with_autoexpand
+from mchanhua.autoregion import capture_padded_and_filter
 from mchanhua.capture import create_grabber, grab_clipboard_image, grab_screen
 from mchanhua.config import CUSTOM_REGION_KEY, Config, save_config
 from mchanhua.debugdump import dump_last_run
@@ -76,6 +76,7 @@ class Application:
         self.heartbeat_interval = 2 if diagnose else 10
         self.beat_count = 0
         self._translate_lock = threading.Lock()
+        self._pending_jobs: list[tuple[str, Region | None]] = []
         logger.info(
             "初始化完成：采集后端 %s，OCR 后端 %s，标定区域 %s，跟随光标区域 %s",
             self.grabber.name,
@@ -153,8 +154,7 @@ class Application:
         """在主线程里启动一次取词翻译（真正的活儿交给工作线程）。"""
 
         if not self._translate_lock.acquire(blocking=False):
-            self.window.set_status("上一次取词还在处理中，请稍等…")
-            get_logger().info("上一次取词尚未结束，忽略这次请求")
+            self._queue_pending("region", region)
             return
         target = region if region is not None else self._current_region()
         self.window.set_status("正在采集并识别…")
@@ -168,7 +168,7 @@ class Application:
         """全屏翻译：整屏识别后翻译，行数超过上限时只翻前若干行。"""
 
         if not self._translate_lock.acquire(blocking=False):
-            self.window.set_status("上一次取词还在处理中，请稍等…")
+            self._queue_pending("fullscreen")
             return
         monitor = self.grabber.primary_monitor()
         self.window.set_status(f"正在全屏识别（{monitor.width}x{monitor.height}）…")
@@ -186,7 +186,7 @@ class Application:
         """翻译剪贴板里的图片（Win+Shift+S 截图后按热键即可）。"""
 
         if not self._translate_lock.acquire(blocking=False):
-            self.window.set_status("上一次取词还在处理中，请稍等…")
+            self._queue_pending("clipboard")
             return
         try:
             image = grab_clipboard_image()
@@ -214,7 +214,7 @@ class Application:
         """翻译一个图片文件。"""
 
         if not self._translate_lock.acquire(blocking=False):
-            self.window.set_status("上一次取词还在处理中，请稍等…")
+            self._queue_pending("file")
             return
         try:
             image = Image.open(path)
@@ -229,23 +229,25 @@ class Application:
         threading.Thread(target=self._worker, args=(None, image), daemon=True).start()
 
     def _capture_and_ocr(self, region: Region | None):
-        """抓图并识别；文字贴住选区边缘时自动扩边（详见 autoregion 模块）。"""
+        """抓图并识别；选区模式向外多抓一圈，只保留选区内的完整行。"""
 
-        _region, image, ocr_result = capture_with_autoexpand(
+        capture, image, ocr_result = capture_padded_and_filter(
             region,
             self.grabber.primary_monitor(),
             grab=lambda target: grab_screen(self.grabber, target),
             recognize=self.ocr.recognize,
+            mode=self.config.ocr.capture_mode,
         )
-        return image, ocr_result
+        return capture, image, ocr_result
 
     def _worker(self, region: Region | None, image=None, max_lines: int | None = None) -> None:
         try:
             translator = self._ensure_translator()
             try:
                 if image is None:
-                    image, ocr_result = self._capture_and_ocr(region)
+                    capture, image, ocr_result = self._capture_and_ocr(region)
                 else:
+                    capture = None
                     ocr_result = self.ocr.recognize(image)
                 result = run_from_ocr(
                     ocr_result,
@@ -260,8 +262,9 @@ class Application:
                 return
 
             get_logger().info(
-                "完成：区域 %s，识别 %d 行，翻译 %d 行，OCR %.0f ms，翻译 %.0f ms",
-                region,
+                "完成：选区 %s，实际抓图 %s，识别 %d 行，翻译 %d 行，OCR %.0f ms，翻译 %.0f ms",
+                region.to_csv() if region is not None else "整屏",
+                capture.to_csv() if capture is not None else "n/a",
                 len(result.source_lines),
                 result.translated_count,
                 result.ocr_ms,
@@ -272,6 +275,29 @@ class Application:
                 self.queue.put(("status", self.translator_error))
         finally:
             self._translate_lock.release()
+            if self._pending_jobs:
+                # 交回主线程执行，避免在工作线程里碰 Tk
+                self.queue.put(("call", self._drain_pending))
+
+    # ---- 繁忙时的排队 ----
+    def _queue_pending(self, kind: str, region: Region | None = None) -> None:
+        """上一次还没结束时，把这次请求记下来（只保留最后一次，避免连按堆积）。"""
+
+        self._pending_jobs = [(kind, region)]
+        self.window.set_status("上一次取词还没结束，已记下这次请求，结束后自动执行")
+        get_logger().info("上一次取词尚未结束，已排队：%s", kind)
+
+    def _drain_pending(self) -> None:
+        if not self._pending_jobs:
+            return
+        kind, region = self._pending_jobs.pop(0)
+        get_logger().info("开始执行排队的请求：%s", kind)
+        if kind == "region":
+            self.perform_translate(region)
+        elif kind == "fullscreen":
+            self.perform_translate_fullscreen()
+        elif kind == "clipboard":
+            self.perform_translate_clipboard()
 
     def _pick_and_save_region(self) -> Region | None:
         """弹出框选并保存为自定义选区；取消时返回 None。"""

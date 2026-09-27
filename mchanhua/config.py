@@ -59,6 +59,9 @@ class OcrConfig:
     language: str = "auto"
     upscale: float = 1.0
     invert: bool = False
+    # screen：整屏识别后按选区筛选（保证行完整，默认）
+    # padded：只抓选区外扩一圈（快，但横向被切掉的长句补不回来）
+    capture_mode: str = "screen"
 
 
 @dataclass
@@ -129,6 +132,8 @@ class Config:
     def validate(self) -> None:
         if self.ocr.upscale <= 0:
             raise ConfigError(f"ocr.upscale 必须为正数：{self.ocr.upscale}")
+        if self.ocr.capture_mode not in ("screen", "padded"):
+            raise ConfigError(f"ocr.capture_mode 只能是 screen 或 padded：{self.ocr.capture_mode}")
         if self.translate.temperature < 0:
             raise ConfigError("translate.temperature 不能为负数")
         if self.capture.monitor < 0:
