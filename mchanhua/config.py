@@ -85,13 +85,13 @@ class UiConfig:
     always_on_top: bool = True
     position: str = "right"
     # ---- 主题（改这里就能换界面风格，不用动代码）----
-    background: str = "#1b1b1f"
-    panel: str = "#101014"
-    text: str = "#f2f2f2"
-    text_dim: str = "#8a8f98"
-    accent: str = "#9ad0ff"
-    button_background: str = "#2a2a31"
-    button_text: str = "#e8e8ec"
+    background: str = "#f5f6f8"
+    panel: str = "#ffffff"
+    text: str = "#17171b"
+    text_dim: str = "#5f6470"
+    accent: str = "#0a66ff"
+    button_background: str = "#e8eaee"
+    button_text: str = "#17171b"
     source_font_size: int = 11
     result_font_size: int = 15
     padding: int = 8
