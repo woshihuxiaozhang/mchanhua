@@ -13,18 +13,24 @@ def _picker(initial: str = "", parent=None):
     from mchanhua.ui.hotkey_picker import HotkeyPicker
 
     owns = parent is None
-    root = parent or tk_module.Tk()
-    root.withdraw()
+    root = parent
+    picker = None
     last: Exception | None = None
     for _ in range(2):     # 这台机器上 Tk 初始化偶尔读不到 ttk 脚本，重试一次更稳
         try:
+            root = parent or tk_module.Tk()
+            root.withdraw()
             picker = HotkeyPicker(root, initial=initial)
             break
         except tk.TclError as exc:
             last = exc
+            if parent is None and root is not None:
+                try:
+                    root.destroy()
+                except Exception:  # pragma: no cover
+                    pass
             time.sleep(0.2)
-    else:  # pragma: no cover - 无图形环境
-        root.destroy()
+    if picker is None:  # pragma: no cover - 无图形环境
         pytest.skip(f"没有可用的图形环境：{last}")
     _settle(picker)
     return picker, root, owns

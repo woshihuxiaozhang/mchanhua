@@ -3,6 +3,7 @@
 from mchanhua.app import Application
 from mchanhua.config import Config
 from mchanhua.geometry import Region
+from mchanhua.ocr.base import OcrLine, OcrResult
 from tests.fakes import DecodingTranslator, FakeGrabber, FakeOcr, FakeWindow, wait_for
 
 
@@ -196,7 +197,9 @@ def test_capture_hides_window_then_shows_it_again():
     assert app._hidden_for_capture is False
 
 
-def test_selection_capture_also_hides_window():
+def test_selection_outside_window_does_not_hide_it():
+    """选区离窗口很远时不要藏窗口——不然每按一次热键窗口都闪一下。"""
+
     window = FakeWindow()
     app = Application(
         Config(),
@@ -207,10 +210,76 @@ def test_selection_capture_also_hides_window():
     )
     app.translator = DecodingTranslator()
 
-    app.perform_translate(Region(100, 200, 400, 300))
+    # FakeTkRoot 的窗口坐标是 (0,0,200,200)，选它右边的区域
+    app.perform_translate(Region(1200, 600, 300, 200))
+    messages = wait_for(app, "result")
+    for call in [message[1] for message in messages if message[0] == "call"]:
+        call()
+
+    assert window.root.withdrawn == 0
+    assert window.root.deiconified == 0
+
+
+def test_selection_covering_window_hides_it():
+    """选区把窗口框进去时必须藏窗口，否则会把界面一起翻译。"""
+
+    window = FakeWindow()
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=FakeOcr(),
+        window=window,
+    )
+    app.translator = DecodingTranslator()
+
+    app.perform_translate(Region(0, 0, 400, 300))     # 盖上窗口
     messages = wait_for(app, "call")
     for call in [message[1] for message in messages if message[0] == "call"]:
         call()
 
     assert window.root.withdrawn >= 1
     assert window.root.deiconified >= 1
+
+
+def test_window_comes_back_before_ocr_and_translation(workdir):
+    """窗口要在"抓完图"就放回来，不能等 OCR/翻译跑完（否则像卡住了）。"""
+
+    window = FakeWindow()
+
+    class _SlowOcr:
+        name = "fake-ocr"
+
+        def recognize(self, image):
+            return OcrResult(lines=[OcrLine(text="Steel Ingot")], elapsed_ms=1.0, backend=self.name)
+
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=_SlowOcr(),
+        window=window,
+    )
+
+    class _RecordingTranslator:
+        name = "fake"
+        warnings: list[str] = []
+
+        def translate_lines(self, lines):
+            return [f"[{text}]" for text in lines]
+
+    app.translator = _RecordingTranslator()
+
+    app.perform_translate_fullscreen()
+    messages = wait_for(app, "result")
+
+    # 队列是先进先出："恢复窗口"必须排在结果之前入队，
+    # 界面主循环按顺序处理，所以窗口一定在显示结果之前就回来了。
+    show_index = next(
+        index for index, message in enumerate(messages)
+        if message[0] == "call" and getattr(message[1], "__name__", "") == "_show_after_capture"
+    )
+    result_index = next(
+        index for index, message in enumerate(messages) if message[0] == "result"
+    )
+    assert show_index < result_index

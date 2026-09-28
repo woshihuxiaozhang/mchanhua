@@ -98,22 +98,39 @@ def capture_padded_and_filter(
     if region is None:
         return None, image, result
 
-    filtered = filter_lines_in_region(result, capture, region)
+    return capture, image, filter_capture(region, capture, result, mode=mode)
+
+
+def capture_region_for(region: Region | None, monitor: Region, mode: str = "screen") -> Region:
+    """算出实际要抓的区域：整屏模式 = 整屏；padded 模式 = 选区外扩一圈。
+
+    抓图和识别分成两步之后，主线程可以"抓完就恢复窗口"，不用等 OCR。
+    """
+
+    if region is None or mode == "screen":
+        return monitor
+    return padded_region(region, monitor)
+
+
+def filter_capture(region: Region, capture: Region, ocr_result, mode: str = "screen"):
+    """选区模式：只保留选区内的行，并把结果写进日志。"""
+
+    filtered = filter_lines_in_region(ocr_result, capture, region)
     if not filtered.lines:
         # 选区里没有文字就是没有文字：**不要**退回整屏结果（那会把屏幕上的
         # 其它文字当成选区内容翻译出来）。交给上层提示"没有识别到文字"。
         get_logger().info(
             "选区内没有命中任何一行（屏幕共识别 %d 行，都在选区 %s 之外）",
-            len(getattr(result, "lines", [])),
+            len(getattr(ocr_result, "lines", [])),
             region.to_csv(),
         )
-        return capture, image, filtered
+        return filtered
     get_logger().info(
         "抓图区域 %s（模式 %s），识别 %d 行，其中 %d 行落在选区 %s 内",
         capture.to_csv(),
         mode,
-        len(getattr(result, "lines", [])),
+        len(getattr(ocr_result, "lines", [])),
         len(filtered.lines),
         region.to_csv(),
     )
-    return capture, image, filtered
+    return filtered

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from mchanhua.autoregion import capture_padded_and_filter
+from mchanhua.autoregion import capture_region_for, filter_capture
 from mchanhua.capture import create_grabber, grab_clipboard_image, grab_screen
 from mchanhua.config import CUSTOM_REGION_KEY, Config, save_config
 from mchanhua.debugdump import dump_last_run
@@ -188,7 +188,7 @@ class Application:
             return
         target = region if region is not None else self._current_region()
         self.window.set_status("正在采集并识别…")
-        self._capture_after_hiding(lambda: self._start_worker(target, None))
+        self._capture_after_hiding(lambda: self._start_worker(target, None), target)
 
     def perform_translate_fullscreen(self) -> None:
         """全屏翻译：整屏识别后翻译，行数超过上限时只翻前若干行。"""
@@ -199,36 +199,65 @@ class Application:
         monitor = self.grabber.primary_monitor()
         self.window.set_status(f"正在全屏识别（{monitor.width}x{monitor.height}）…")
         self._capture_after_hiding(
-            lambda: self._start_worker(None, None, FULLSCREEN_MAX_LINES)
+            lambda: self._start_worker(None, None, FULLSCREEN_MAX_LINES), None
         )
 
     # ---- 抓屏前把自己藏起来 ----
-    def _capture_after_hiding(self, start) -> None:
-        """先把自己的窗口从屏幕上拿掉，停一拍再开始抓图。
+    def _capture_after_hiding(self, start, region: Region | None) -> None:
+        """只在窗口挡住抓图区域时才把它藏起来，停一拍再开始抓图。
 
         否则全屏翻译会把界面本身也 OCR 进去（"翻译选区/设置"这些字全被翻译）。
+        但窗口离得远就别动它了——每次按热键窗口都闪一下很烦人。
         隐藏/恢复都必须发生在主线程（Tk 只能在主线程碰）。
         """
 
         root = getattr(self.window, "root", None)
-        delay = 0
-        if root is not None and hasattr(root, "after"):
+        if root is not None and hasattr(root, "after") and self._region_hits_window(region):
             try:
                 root.withdraw()
                 self._hidden_for_capture = True
                 root.update_idletasks()
-                delay = 120          # 留一拍让窗口真的从画面上消失
             except Exception:  # pragma: no cover - 隐藏失败也要继续抓图
                 get_logger().warning("抓图前隐藏窗口失败", exc_info=True)
         try:
-            if delay and hasattr(root, "after"):
-                root.after(delay, start)
+            if self._hidden_for_capture and hasattr(root, "after"):
+                # 等窗口真的看不见了、残影也散掉，再抓图
+                self._start_when_hidden(root, start)
             else:
                 start()
         except Exception:
             self._translate_lock.release()
             self._show_after_capture()
             raise
+
+    def _start_when_hidden(self, root, start, attempt: int = 0) -> None:
+        """轮询到窗口不可见之后再等一小会儿（Windows 的淡出动画会留残影）。"""
+
+        try:
+            visible = bool(root.winfo_viewable())
+        except Exception:  # pragma: no cover - 窗口已销毁
+            visible = False
+        if visible and attempt < 20:
+            root.after(25, lambda: self._start_when_hidden(root, start, attempt + 1))
+            return
+        root.after(80, start)
+
+    def _region_hits_window(self, region: Region | None) -> bool:
+        """抓图区域跟程序窗口有没有重叠（重叠才需要把窗口藏起来）。"""
+
+        root = getattr(self.window, "root", None)
+        if root is None:
+            return False
+        try:
+            x, y = int(root.winfo_x()), int(root.winfo_y())
+            width, height = int(root.winfo_width()), int(root.winfo_height())
+        except Exception:  # pragma: no cover - 拿不到就保守处理
+            return True
+        if width <= 1 or height <= 1:
+            return False                     # 窗口本来就没显示
+        window = Region(x, y, width, height)
+        target = region if region is not None else self.grabber.primary_monitor()
+        return window.intersect(target) is not None
 
     def _start_worker(self, region: Region | None, image, max_lines: int | None = None) -> None:
         try:
@@ -372,14 +401,24 @@ class Application:
     def _capture_and_ocr(self, region: Region | None):
         """抓图并识别；选区模式向外多抓一圈，只保留选区内的完整行。"""
 
-        capture, image, ocr_result = capture_padded_and_filter(
-            region,
-            self.grabber.primary_monitor(),
-            grab=lambda target: grab_screen(self.grabber, target),
-            recognize=self.ocr.recognize,
-            mode=self.config.ocr.capture_mode,
+        capture, image = self._grab_image(region)
+        return capture, image, self._recognize(capture, image, region)
+
+    def _grab_image(self, region: Region | None):
+        """按模式抓一张图：screen = 整屏，padded = 选区外扩一圈。"""
+
+        capture = capture_region_for(
+            region, self.grabber.primary_monitor(), self.config.ocr.capture_mode
         )
-        return capture, image, ocr_result
+        return capture, grab_screen(self.grabber, capture)
+
+    def _recognize(self, capture: Region | None, image, region: Region | None):
+        """识别；选区模式再按选区筛一遍行。"""
+
+        result = self.ocr.recognize(image)
+        if region is None or capture is None:
+            return result
+        return filter_capture(region, capture, result, mode=self.config.ocr.capture_mode)
 
     def _no_text_message(self, region: Region | None) -> str:
         """选区/整屏没识别到文字时的提示语。"""
@@ -393,7 +432,11 @@ class Application:
             translator = self._ensure_translator()
             try:
                 if image is None:
-                    capture, image, ocr_result = self._capture_and_ocr(region)
+                    capture, image = self._grab_image(region)
+                    # 抓完这一张就把窗口放回来：OCR 和翻译都不需要它继续藏着，
+                    # 拖着不放窗口会"消失好久"。
+                    self.queue.put(("call", self._show_after_capture))
+                    ocr_result = self._recognize(capture, image, region)
                 else:
                     capture = None
                     ocr_result = self.ocr.recognize(image)
@@ -495,11 +538,9 @@ class Application:
     def _pick_region(self) -> Region | None:
         """只弹出框选，不做任何持久化（供 Alt+/ 临时取词使用）。"""
 
-        self.window.root.withdraw()
         try:
             return pick_region(self.grabber.primary_monitor(), self.window.root)
         finally:
-            self.window.root.deiconify()
             cleared = reset_pressed_state()
             if cleared:
                 get_logger().info("框选结束后清理了 %d 个残留按键状态", cleared)

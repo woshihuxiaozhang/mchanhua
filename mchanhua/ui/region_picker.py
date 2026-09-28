@@ -14,6 +14,7 @@ def pick_region(physical_screen: Region, parent: tk.Misc | None = None) -> Regio
     root = tk.Tk() if owns_root else tk.Toplevel(parent)
     root.attributes("-fullscreen", True)
     root.attributes("-topmost", True)
+    root.lift()                       # 盖在翻译小窗上面（小窗也是置顶的）
     try:
         root.attributes("-alpha", 0.35)
     except tk.TclError:  # pragma: no cover
@@ -73,4 +74,3 @@ def pick_region(physical_screen: Region, parent: tk.Misc | None = None) -> Regio
     else:
         root.wait_window()
     return state["result"]
-

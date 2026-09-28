@@ -90,6 +90,9 @@ class FakeTkRoot:
     def update_idletasks(self) -> None:
         pass
 
+    def winfo_viewable(self) -> int:
+        return 0            # 测试替身里窗口当"已经看不见"，抓图可以马上开始
+
     def after(self, _ms: int, func=None, *args):
         """测试里立即执行，等价于"稍后就开始抓图"。"""
 
@@ -108,6 +111,19 @@ class FakeTkRoot:
 
     def winfo_screenheight(self) -> int:
         return 1152
+
+    # 窗口自身的位置/尺寸（默认摆在左上角 200x200，方便测"选区有没有盖住窗口"）
+    def winfo_x(self) -> int:
+        return 0
+
+    def winfo_y(self) -> int:
+        return 0
+
+    def winfo_width(self) -> int:
+        return 200
+
+    def winfo_height(self) -> int:
+        return 200
 
 
 def wait_for(app, kind: str, timeout: float = 10.0) -> list[tuple]:
