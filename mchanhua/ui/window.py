@@ -17,6 +17,7 @@ from customtkinter import ScalingTracker
 
 from mchanhua.config import Config
 from mchanhua.pipeline import PipelineResult
+from mchanhua.ui.titlebar import use_light_title_bar
 
 FONT_STEPS = (11, 13, 15, 19)
 TRANSPARENT = "#010203"          # 只用来做透明键，不参与主题
@@ -103,6 +104,7 @@ class ResultWindow:
             self.root.attributes("-transparentcolor", TRANSPARENT)
         except tk.TclError:  # pragma: no cover - 少数平台不支持
             pass
+        self._apply_light_title_bar()
         self.root.after(200, self._apply_alpha)
 
         self.root.geometry(f"{ui.width}x{ui.height}")
@@ -115,7 +117,7 @@ class ResultWindow:
         self.f_meta = ctk.CTkFont(family=family, size=FONT_STEPS[0])
 
         self.card = ctk.CTkFrame(
-            self.root, corner_radius=12, fg_color="#FFFFFF", border_width=0
+            self.root, corner_radius=0, fg_color="#FFFFFF", border_width=0   # 直角内框
         )
         self.card.pack(fill="both", expand=True)      # 白卡片直接铺满窗口：没有外框、没有留白
 
@@ -163,7 +165,7 @@ class ResultWindow:
     # ---- 顶部标题行 ----
     def _build_title(self) -> None:
         row = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
-        row.pack(fill="x", padx=16, pady=(12, 0))
+        row.pack(fill="x", padx=16, pady=(10, 0))
         ctk.CTkLabel(row, text="文", width=20, height=20, corner_radius=4,
                      fg_color="#E8F0FE", text_color="#1A73E8", font=self.f_meta).pack(side="left")
         ctk.CTkLabel(row, text="取词翻译", font=self.f_title, text_color="#1B1B1B").pack(
@@ -174,12 +176,7 @@ class ResultWindow:
             fg_color="#E8F0FE", text_color="#1A73E8", font=self.f_meta,
         )
         self.provider_chip.pack(side="left")
-        for text, command in (("✕", self._quit), ("—", self._minimize)):
-            ctk.CTkButton(row, text=text, width=28, height=24, corner_radius=6,
-                          fg_color="transparent", hover_color="#F1F1F1",
-                          text_color="#5F6368", font=self.f_meta, command=command).pack(
-                side="right", padx=2
-            )
+        # 最小化 / 关闭交给外框的标题栏按钮，这里不再重复放一份
         for widget in (row, self.card):
             widget.bind("<Button-1>", self._start_drag)
             widget.bind("<B1-Motion>", self._drag)
@@ -189,14 +186,14 @@ class ResultWindow:
     def _build_text(self) -> None:
         self.target = ctk.CTkTextbox(
             self.card, wrap="word", font=self.f_result, fg_color="transparent",
-            text_color="#111111", corner_radius=0, border_width=0, height=48,
+            text_color="#111111", corner_radius=0, border_width=0, height=44,
         )
-        self.target.pack(fill="x", padx=12, pady=(8, 0))
+        self.target.pack(fill="x", padx=12, pady=(6, 0))
         self.source_area = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
         self.source_area.pack(fill="x", padx=12)
         self.source = ctk.CTkTextbox(
             self.source_area, wrap="word", font=self.f_source, fg_color="transparent",
-            text_color="#8A8A8A", corner_radius=0, border_width=0, height=34,
+            text_color="#8A8A8A", corner_radius=0, border_width=0, height=30,
         )
         self.source.pack(fill="x")
 
@@ -205,12 +202,12 @@ class ResultWindow:
             self.card, text="", anchor="w", justify="left",
             font=self.f_meta, text_color="#9A9A9A",
         )
-        self.status.pack(fill="x", padx=16, pady=(2, 0))
+        self.status.pack(fill="x", padx=16)
 
     # ---- 底部按钮 ----
     def _build_buttons(self) -> None:
         bar = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
-        bar.pack(fill="x", padx=12, pady=(10, 12))
+        bar.pack(fill="x", padx=12, pady=(8, 8))
         self.action_bars.append(bar)
         specs = (
             ("翻译选区", self._translate, True, "scan-text"),
@@ -238,6 +235,14 @@ class ResultWindow:
         return preset.label.split("（")[0] if preset else self.config.translate.provider
 
     # ---- 窗口行为 ----
+    def _apply_light_title_bar(self) -> None:
+        """外框（标题栏）保持白色：系统深色主题下默认是黑的，这里强制浅色。"""
+
+        use_light_title_bar(self.root)
+        # 窗口映射 / DWM 处理标题栏是在之后发生的，再补两次更稳
+        self.root.after(150, lambda: use_light_title_bar(self.root))
+        self.root.after(500, lambda: use_light_title_bar(self.root))
+
     def _apply_alpha(self) -> None:
         opacity = float(self.config.ui.opacity)
         if opacity >= 0.999:
@@ -271,7 +276,7 @@ class ResultWindow:
         else:
             self.source_area.pack(fill="x", padx=12)
             for bar in self.action_bars:
-                bar.pack(fill="x", padx=12, pady=(10, 12))
+                bar.pack(fill="x", padx=12, pady=(8, 8))
             self.set_status("已展开（译文在上，原文在下）")
         self._place_window()          # 折叠后也要贴着内容收小，不留一大块空白
 

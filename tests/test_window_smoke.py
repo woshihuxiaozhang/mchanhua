@@ -172,3 +172,40 @@ def test_collapsing_shrinks_window():
         assert after < before
     finally:
         window.root.destroy()
+
+
+def test_card_has_square_corners_and_no_extra_buttons():
+    """内框改成直角；最小化和关闭不再重复放在卡片里（标题栏已经有了）。"""
+
+    window = _window()
+    try:
+        window.root.update_idletasks()
+        assert int(window.card.cget("corner_radius")) == 0
+        title_row = window.card.winfo_children()[0]
+        texts = [child.cget("text") for child in title_row.winfo_children()]
+        assert texts == ["文", "取词翻译", window._provider_label()]
+        assert "✕" not in texts and "—" not in texts
+    finally:
+        window.root.destroy()
+
+
+def test_window_is_compact():
+    """窗口高度要贴着内容（曾经多出一大块空白）。"""
+
+    window = _window()
+    try:
+        window.root.update_idletasks()
+        width, height = window._place_window()
+        assert height <= 260          # 物理像素；改之前是 268 起步
+    finally:
+        window.root.destroy()
+
+
+def test_light_title_bar_helper_does_not_raise():
+    from mchanhua.ui.titlebar import use_light_title_bar
+
+    window = _window()
+    try:
+        assert use_light_title_bar(window.root) in (True, False)   # 非 Windows 返回 False
+    finally:
+        window.root.destroy()

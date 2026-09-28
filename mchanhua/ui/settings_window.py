@@ -22,6 +22,7 @@ from mchanhua.translate.providers import PRESETS, guess_provider
 from mchanhua.ui.hotkey_capture import ComboTracker
 from mchanhua.ui.hotkey_picker import pick_hotkey
 from mchanhua.ui.theme import DEFAULT_LIGHT
+from mchanhua.ui.titlebar import use_light_title_bar
 from mchanhua.ui.window import _is_dark
 
 HOTKEY_LABELS = (
@@ -61,6 +62,8 @@ class SettingsWindow:
         self.root.title("mchanhua 设置")
         self.root.geometry("820x540")     # 热键页多了一列「选择按键」按钮，留够宽度
         self.root.configure(fg_color="#F7F7F7")
+        use_light_title_bar(self.root)    # 外框保持白色，不跟随系统深色主题
+        self.root.after(300, lambda: use_light_title_bar(self.root))
         self._vars: dict[str, tk.Variable] = {}
         self._trackers: dict[str, ComboTracker] = {}
         self._capture_previous: dict[str, str] = {}
