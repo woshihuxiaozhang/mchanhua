@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 import customtkinter as ctk
+from customtkinter import ScalingTracker
 
 from mchanhua.config import Config
 from mchanhua.pipeline import PipelineResult
@@ -132,17 +133,26 @@ class ResultWindow:
         self._place_window()
 
     def _place_window(self):
-        """按实际需要的尺寸摆好窗口：内容比配置宽时也不会顶出屏幕（按钮被切掉）。"""
+        """按实际需要的尺寸摆好窗口：内容比配置宽时也不会顶出屏幕（按钮被切掉）。
+
+        customtkinter 会把 geometry 里的宽高乘上 DPI 缩放，而坐标不加缩放，
+        所以尺寸按"逻辑像素"（配置单位）给、位置按物理像素算，
+        否则高分屏上窗口会顶出屏幕右边、最右边的按钮被切掉。
+        """
 
         ui = self.config.ui
         self.root.update_idletasks()
-        screen_w = self.root.winfo_screenwidth()
+        scaling = float(ScalingTracker.get_window_dpi_scaling(self.root)) or 1.0
+        screen_w = self.root.winfo_screenwidth()      # 物理像素
         screen_h = self.root.winfo_screenheight()
-        width = max(int(ui.width), int(self.root.winfo_reqwidth()))
-        height = max(int(ui.height), int(self.root.winfo_reqheight()))
-        x, y = resolve_position(ui, (screen_w, screen_h), (width, height))
-        self.root.geometry(f"{width}x{height}+{x}+{y}")
-        return width, height
+        # winfo_req* 是物理像素，先换回逻辑像素跟配置取大，再换回物理算位置
+        logical_w = max(int(ui.width), int(round(self.root.winfo_reqwidth() / scaling)))
+        logical_h = max(int(ui.height), int(round(self.root.winfo_reqheight() / scaling)))
+        physical_w = int(round(logical_w * scaling))
+        physical_h = int(round(logical_h * scaling))
+        x, y = resolve_position(ui, (screen_w, screen_h), (physical_w, physical_h))
+        self.root.geometry(f"{logical_w}x{logical_h}+{x}+{y}")
+        return physical_w, physical_h
 
     # ---- 顶部标题行 ----
     def _build_title(self) -> None:

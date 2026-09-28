@@ -119,8 +119,11 @@ def test_window_stays_on_screen_and_buttons_fit():
         # 只刷新布局，不跑 after 回调（上一个用例销毁窗口后仍有待执行的回调）
         window.root.update_idletasks()
         ui = window.config.ui
-        # 布局自己需要的宽度不能超过配置宽度，否则窗口会被撑到屏幕外
-        assert window.root.winfo_reqwidth() <= ui.width
+        from customtkinter import ScalingTracker
+
+        scaling = float(ScalingTracker.get_window_dpi_scaling(window.root)) or 1.0
+        # 布局自己需要的宽度（换算回逻辑像素）不能超过配置宽度，否则窗口会被撑到屏幕外
+        assert window.root.winfo_reqwidth() / scaling <= ui.width
         width, height = window._place_window()
         screen_w = window.root.winfo_screenwidth()
         screen_h = window.root.winfo_screenheight()
