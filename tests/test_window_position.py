@@ -17,3 +17,19 @@ def test_small_screen_never_goes_negative():
     x, y = resolve_position(ui, (300, 200))
     assert (x, y) == (0, 24)
 
+
+def test_size_override_keeps_window_inside_screen():
+    """布局实际需要的尺寸比配置宽时，也要贴边摆放、不能顶出屏幕（按钮会被切掉）。"""
+
+    ui = UiConfig(width=430, height=235, position="right")
+    width, height = 520, 260
+    x, y = resolve_position(ui, (2560, 1440), (width, height))
+    assert x == 2560 - width - 24
+    assert x + width <= 2560
+    assert y + height <= 1440
+
+
+def test_size_override_on_bottom_right():
+    ui = UiConfig(width=430, height=235, position="bottom-right")
+    x, y = resolve_position(ui, (1920, 1080), (500, 300))
+    assert (x, y) == (1920 - 500 - 24, 1080 - 300 - 24)

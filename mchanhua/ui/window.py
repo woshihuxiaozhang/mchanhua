@@ -25,17 +25,22 @@ def snap_font_size(size: int) -> int:
     return min(FONT_STEPS, key=lambda step: abs(step - size))
 
 
-def resolve_position(config, screen_size: tuple[int, int]) -> tuple[int, int]:
+def resolve_position(
+    config, screen_size: tuple[int, int], size: tuple[int, int] | None = None
+) -> tuple[int, int]:
+    """算出小窗左上角坐标。size 用于传入"布局需要的最小尺寸"（可能比配置大）。"""
+
+    width, height = size or (config.width, config.height)
     screen_w, screen_h = screen_size
     margin = 24
     if config.position == "left":
         return (margin, margin)
     if config.position == "right":
-        return (max(0, screen_w - config.width - margin), margin)
+        return (max(0, screen_w - width - margin), margin)
     if config.position == "bottom-right":
-        return (max(0, screen_w - config.width - margin), max(0, screen_h - config.height - margin))
+        return (max(0, screen_w - width - margin), max(0, screen_h - height - margin))
     if config.position == "bottom-left":
-        return (margin, max(0, screen_h - config.height - margin))
+        return (margin, max(0, screen_h - height - margin))
     return (margin, margin)
 
 
@@ -99,8 +104,7 @@ class ResultWindow:
             pass
         self.root.after(200, self._apply_alpha)
 
-        x, y = resolve_position(ui, (self.root.winfo_screenwidth(), self.root.winfo_screenheight()))
-        self.root.geometry(f"{ui.width}x{ui.height}+{x}+{y}")
+        self.root.geometry(f"{ui.width}x{ui.height}")
         self.root.minsize(400, 190)
 
         family = ui.font_family or "Microsoft YaHei UI"
@@ -125,6 +129,20 @@ class ResultWindow:
         self._build_meta()
         self.set_status("待取词：把鼠标移到物品上按热键")
         self._build_buttons()
+        self._place_window()
+
+    def _place_window(self):
+        """按实际需要的尺寸摆好窗口：内容比配置宽时也不会顶出屏幕（按钮被切掉）。"""
+
+        ui = self.config.ui
+        self.root.update_idletasks()
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        width = max(int(ui.width), int(self.root.winfo_reqwidth()))
+        height = max(int(ui.height), int(self.root.winfo_reqheight()))
+        x, y = resolve_position(ui, (screen_w, screen_h), (width, height))
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        return width, height
 
     # ---- 顶部标题行 ----
     def _build_title(self) -> None:
@@ -184,15 +202,18 @@ class ResultWindow:
             ("全屏翻译", self._translate_fullscreen, False, "monitor"),
             ("设置", self._open_settings, False, "settings"),
         )
-        for text, command, primary, _icon in specs:
+        for column in range(len(specs)):
+            # 四等分：按钮永远不会把窗口顶宽，也就不会顶出屏幕
+            bar.grid_columnconfigure(column, weight=1, uniform="action")
+        for column, (text, command, primary, _icon) in enumerate(specs):
             ctk.CTkButton(
-                bar, text=text, height=34, corner_radius=6, font=self.f_source,
+                bar, text=text, width=1, height=34, corner_radius=6, font=self.f_source,
                 fg_color="#E8F0FE" if primary else "#FFFFFF",
                 hover_color="#DCE7FB" if primary else "#F1F1F1",
                 text_color="#1A73E8" if primary else "#3C4043",
                 border_width=0 if primary else 1, border_color="#E0E0E0",
                 command=command,
-            ).pack(side="left", padx=(0, 8))
+            ).grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0))
 
     def _provider_label(self) -> str:
         from mchanhua.translate.providers import find_preset
