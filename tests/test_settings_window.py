@@ -362,3 +362,27 @@ def test_entry_capture_can_be_turned_off_for_manual_typing():
         assert window._vars["hotkey.translate"].get() == "alt+t"
     finally:
         window.root.destroy()
+
+
+# ---- 页面滚动：内容比窗口高时要能滚 ----
+
+
+def test_settings_pages_are_scrollable():
+    """回归：设置窗口的页以前没有滚动条，界面外观页下半截根本看不到。"""
+
+    import customtkinter as ctk
+
+    window = _window(Config())
+    try:
+        for name in ("翻译服务", "热键", "界面外观", "历史翻译"):
+            body = window._page_bodies[name]
+            assert isinstance(body, ctk.CTkScrollableFrame)
+            assert body._parent_frame.winfo_manager() == "pack"    # 外层容器在显示
+            assert body._scrollbar.winfo_manager() == "grid"       # 右边挂了滚动条
+
+        window._show_page("界面外观")
+        window.root.update_idletasks()
+        # 界面外观页的内容本来就比窗口可视区域高，必须靠滚动才能看全
+        assert window._page_bodies["界面外观"].winfo_reqheight() > 400
+    finally:
+        window.root.destroy()

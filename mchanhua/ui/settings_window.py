@@ -74,6 +74,7 @@ class SettingsWindow:
         self._trackers: dict[str, ComboTracker] = {}
         self._capture_previous: dict[str, str] = {}
         self._pages: dict[str, ctk.CTkFrame] = {}
+        self._page_bodies: dict[str, ctk.CTkScrollableFrame] = {}
         self._tab_buttons: dict[str, ctk.CTkButton] = {}
 
         family = config.ui.font_family or "Microsoft YaHei UI"
@@ -184,10 +185,22 @@ class SettingsWindow:
                              text_color=TEXT if active else LABEL)
 
     def _make_page(self, name: str) -> ctk.CTkFrame:
-        page = ctk.CTkFrame(self.pages_area, corner_radius=0, fg_color="transparent")
-        page.columnconfigure(1, weight=1)
-        self._pages[name] = page
-        return page
+        """一页 = 外层容器（用来显示/隐藏）+ 里面可滚动的正文。
+
+        内容多的页（界面外观、历史翻译）以前会被窗口切掉、又滚不动，
+        所以正文一律放进 CTkScrollableFrame：放不下就能滚。
+        """
+
+        holder = ctk.CTkFrame(self.pages_area, corner_radius=0, fg_color="transparent")
+        body = ctk.CTkScrollableFrame(
+            holder, corner_radius=0, fg_color="transparent",
+            scrollbar_button_color="#C9CDD4", scrollbar_button_hover_color="#AEB4BF",
+        )
+        body._parent_frame.pack(fill="both", expand=True)   # 真正要显示的是外层容器
+        body.columnconfigure(1, weight=1)
+        self._pages[name] = holder
+        self._page_bodies[name] = body
+        return body
 
     # ---- 翻译服务 ----
     def _build_service(self) -> None:
