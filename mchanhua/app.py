@@ -14,6 +14,7 @@ from mchanhua.config import CUSTOM_REGION_KEY, Config, save_config
 from mchanhua.debugdump import dump_last_run
 from mchanhua.diagnostics import UiWatchdog, make_dump_all_threads
 from mchanhua.geometry import Region, enable_dpi_awareness, follow_cursor_region
+from mchanhua.history import TranslationHistory
 from mchanhua.hotkey import HotkeyManager, reset_pressed_state
 from mchanhua.logging_setup import fault_stream, get_logger
 from mchanhua.ocr import create_engine
@@ -64,6 +65,8 @@ class Application:
         self.cache_path = cache_path
         self.queue: queue.Queue[tuple] = queue.Queue()
         self.hotkeys = HotkeyManager()
+        # 翻译历史只放在内存里：退出程序就没了，不落盘、不占空间
+        self.history = TranslationHistory()
         self.window = window or ResultWindow(
             config,
             WindowCallbacks(
@@ -76,6 +79,8 @@ class Application:
                 on_quit=self.quit,
             ),
         )
+        # 小窗里的时钟按钮点开时，用这个函数现取最近 20 条
+        self.window.history_provider = self.recent_history
         self.last_region: Region | None = config.regions.fixed_region("tooltip")
         self.diagnose = diagnose
         self.watchdog = UiWatchdog(
@@ -247,7 +252,19 @@ class Application:
             parent=self.window.root,
             pause_hotkeys=self.suspend_hotkeys,
             resume_hotkeys=self.resume_hotkeys,
+            history=self.history,
+            on_history_cleared=self.refresh_history,
         )
+
+    def recent_history(self):
+        """最近 20 条翻译记录（小窗历史面板用）。"""
+
+        return self.history.recent()
+
+    def refresh_history(self) -> None:
+        """把最新历史推给界面（设置里清空历史后也会调一次）。"""
+
+        self.queue.put(("history", self.history.recent()))
 
     def suspend_hotkeys(self) -> None:
         """临时卸掉全局热键（设置界面录热键时用）：否则录 Ctrl+Alt 会顺手触发翻译。"""
@@ -347,6 +364,13 @@ class Application:
                 result.ocr_ms,
                 result.translate_ms,
             )
+            # 记进历史（含"本次"），再刷新小窗里的历史面板
+            self.history.add(
+                result.source_lines,
+                result.output_lines,
+                region=region.to_csv() if region is not None else "",
+            )
+            self.queue.put(("history", self.history.recent()))
             self.queue.put(("result", result))
             if translator is None and self.translator_error:
                 self.queue.put(("status", self.translator_error))

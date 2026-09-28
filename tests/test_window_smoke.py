@@ -1,10 +1,12 @@
 """界面冒烟测试：确认 Tk 窗口能创建、更新、销毁（无图形环境时跳过）。"""
 
 import time
+from datetime import datetime
 
 import pytest
 
 from mchanhua.config import Config
+from mchanhua.history import TranslationHistory
 from mchanhua.pipeline import PipelineResult
 from mchanhua.ui.window import drain_queue, resolve_position
 
@@ -175,7 +177,7 @@ def test_collapsing_shrinks_window():
 
 
 def test_card_has_square_corners_and_no_extra_buttons():
-    """内框改成直角；最小化和关闭不再重复放在卡片里（标题栏已经有了）。"""
+    """内框改成直角；标题行只留「文 / 取词翻译 / 服务 / 时钟」，没有重复的关闭按钮。"""
 
     window = _window()
     try:
@@ -183,7 +185,7 @@ def test_card_has_square_corners_and_no_extra_buttons():
         assert int(window.card.cget("corner_radius")) == 0
         title_row = window.card.winfo_children()[0]
         texts = [child.cget("text") for child in title_row.winfo_children()]
-        assert texts == ["文", "取词翻译", window._provider_label()]
+        assert texts == ["文", "取词翻译", window._provider_label(), "🕘"]
         assert "✕" not in texts and "—" not in texts
     finally:
         window.root.destroy()
@@ -282,3 +284,78 @@ def test_poll_arms_next_tick_before_doing_the_work():
     _FakeSink().poll(queue_module.Queue(), 60)
 
     assert order == ["after", "beat", "drain"]
+
+
+# ---- 历史翻译（时钟按钮 + 窗内折叠面板）----
+
+
+def test_history_button_is_a_clock_icon():
+    window = _window()
+    try:
+        assert window.history_button.cget("text") == "🕘"
+    finally:
+        window.root.destroy()
+
+
+def test_clock_button_expands_history_inside_the_same_window():
+    """点时钟：在当前窗口里展开历史面板，不另开窗口。"""
+
+    history = TranslationHistory()
+    history.add(["Steel Ingot"], ["钢锭"], at=datetime(2026, 9, 28, 14, 35))
+    window = _window()
+    try:
+        window.history_provider = history.recent
+        window.root.update_idletasks()
+        before = window._place_window()[1]
+        assert window.history_open is False
+        assert window.history_panel.winfo_manager() == ""    # 初始不占位置
+
+        window.toggle_history()
+        window.root.update_idletasks()
+
+        assert window.history_open is True
+        assert window.history_panel.winfo_manager() == "pack"
+        assert window.target.winfo_manager() == ""           # 译文区让位给历史
+        text = window.history_text.get("1.0", "end")
+        assert "[14:35]" in text and "钢锭" in text and "Steel Ingot" in text
+        assert window._place_window()[1] >= before          # 窗口够高放得下面板
+        assert len(window.root.winfo_children()) >= 1       # 没有另开窗口
+
+        window.toggle_history()
+        window.root.update_idletasks()
+        assert window.history_open is False
+        assert window.history_panel.winfo_manager() == ""
+        assert window.target.winfo_manager() == "pack"
+    finally:
+        window.root.destroy()
+
+
+def test_new_result_closes_history_panel():
+    window = _window()
+    try:
+        window.toggle_history()
+        assert window.history_open is True
+
+        window.show_result(PipelineResult(source_lines=["a"], output_lines=["甲"]))
+
+        assert window.history_open is False
+        assert window.target.get("1.0", "end").strip() == "甲"
+    finally:
+        window.root.destroy()
+
+
+def test_history_message_updates_the_panel():
+    import queue as queue_module
+
+    history = TranslationHistory()
+    history.add(["Redstone"], ["红石"], at=datetime(2026, 9, 28, 8, 3))
+    window = _window()
+    try:
+        messages: queue_module.Queue = queue_module.Queue()
+        messages.put(("history", history.recent()))
+        window.drain(messages)
+        window.root.update_idletasks()
+        text = window.history_text.get("1.0", "end")
+        assert "[08:03]" in text and "红石" in text
+    finally:
+        window.root.destroy()

@@ -241,6 +241,59 @@ def test_settings_window_passes_pause_callbacks(monkeypatch):
         window.root.destroy()
 
 
+# ---- 历史翻译页 ----
+
+
+def test_settings_window_has_history_tab_showing_all_entries(monkeypatch):
+    """设置里能看到全部历史（小窗只看最近 20 条）。"""
+
+    from datetime import datetime
+
+    from mchanhua.history import TranslationHistory
+    from mchanhua.ui.settings_window import SettingsWindow
+
+    history = TranslationHistory()
+    for index in range(25):
+        history.add([f"line {index}"], [f"第 {index} 行"], at=datetime(2026, 9, 28, 10, index % 60))
+
+    try:
+        window = SettingsWindow(Config(), history=history)
+    except tk.TclError as exc:  # pragma: no cover
+        pytest.skip(f"没有可用的图形环境：{exc}")
+    try:
+        assert "历史翻译" in window._pages
+        text = window._history_text.get("1.0", "end")
+        assert "line 0" in text and "line 24" in text     # 25 条全在（不止 20 条）
+        assert "共 25 条" in window._history_count.cget("text")
+    finally:
+        window.root.destroy()
+
+
+def test_settings_window_clear_history(monkeypatch):
+    from datetime import datetime
+
+    from mchanhua.history import TranslationHistory
+    from mchanhua.ui.settings_window import SettingsWindow
+
+    history = TranslationHistory()
+    history.add(["Steel Ingot"], ["钢锭"], at=datetime(2026, 9, 28, 14, 35))
+    cleared: list[str] = []
+
+    try:
+        window = SettingsWindow(Config(), history=history, on_history_cleared=lambda: cleared.append("ok"))
+    except tk.TclError as exc:  # pragma: no cover
+        pytest.skip(f"没有可用的图形环境：{exc}")
+    try:
+        monkeypatch.setattr("mchanhua.ui.settings_window.messagebox.askyesno", lambda *a, **k: True)
+        window.clear_history()
+
+        assert len(history) == 0
+        assert cleared == ["ok"]
+        assert "还没有翻译记录" in window._history_text.get("1.0", "end")
+    finally:
+        window.root.destroy()
+
+
 class _FakeKeyEvent:
     def __init__(self, keysym: str) -> None:
         self.keysym = keysym

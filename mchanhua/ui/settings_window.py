@@ -1,6 +1,7 @@
 """设置窗口：按参考图实现——白卡片、文字标签页、灰底输入框。
 
-三个标签页：翻译服务（含 API Key 独立输入框）、热键（可录制 / 可选择按键）、界面外观。
+四个标签页：翻译服务（含 API Key 独立输入框）、热键（可录制 / 可选择按键）、
+界面外观、历史翻译（全部记录，只存在内存里，退出程序即清空）。
 保存后热键与翻译服务立即生效，界面外观重启后生效。
 """
 
@@ -14,6 +15,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from mchanhua.config import Config, save_config
+from mchanhua.history import TranslationHistory, render_entries
 from mchanhua.hotkey import find_conflicts, normalize_hotkey
 from mchanhua.logging_setup import get_logger
 from mchanhua.paths import app_dir, log_dir
@@ -51,12 +53,16 @@ class SettingsWindow:
         parent: tk.Misc | None = None,
         pause_hotkeys: Callable[[], None] | None = None,
         resume_hotkeys: Callable[[], None] | None = None,
+        history: TranslationHistory | None = None,
+        on_history_cleared: Callable[[], None] | None = None,
     ) -> None:
         self.config = config
         self.on_saved = on_saved
         # 录制热键时把全局热键暂停，免得一边录一边把翻译触发了
         self.pause_hotkeys = pause_hotkeys
         self.resume_hotkeys = resume_hotkeys
+        self.history = history
+        self.on_history_cleared = on_history_cleared
         ctk.set_appearance_mode("dark" if _is_dark(config.ui.background) else "light")
         self.root = ctk.CTkToplevel(parent) if parent is not None else ctk.CTk()
         self.root.title("mchanhua 设置")
@@ -83,6 +89,7 @@ class SettingsWindow:
         self._build_service()
         self._build_hotkeys()
         self._build_appearance()
+        self._build_history()
         self._build_footer()
         self._show_page("翻译服务")
         if parent is not None:
@@ -154,7 +161,7 @@ class SettingsWindow:
     def _build_tabs(self) -> None:
         row = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
         row.pack(fill="x", padx=16, pady=(4, 8))
-        for name in ("翻译服务", "热键", "界面外观"):
+        for name in ("翻译服务", "热键", "界面外观", "历史翻译"):
             button = ctk.CTkButton(
                 row, text=name, width=0, height=28, corner_radius=6, font=self.f_label,
                 fg_color="transparent", hover_color=FIELD, text_color=LABEL,
@@ -381,6 +388,50 @@ class SettingsWindow:
                 var.set(str(value))
         messagebox.showinfo("已恢复默认主题", "配色已恢复为默认，点「保存并应用」生效。")
 
+    # ---- 历史翻译 ----
+    def _build_history(self) -> None:
+        page = self._make_page("历史翻译")
+        ctk.CTkLabel(
+            page,
+            text="小窗里的时钟按钮只看最近 20 次；这里是全部记录。"
+                 "记录只放在内存里，退出程序后自动清除，不占空间。",
+            font=self.f_small, text_color=LABEL, anchor="w", justify="left", wraplength=620,
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 8))
+
+        self._history_text = ctk.CTkTextbox(
+            page, wrap="word", font=self.f_field, fg_color=FIELD, text_color=TEXT,
+            corner_radius=6, border_width=1, border_color=LINE, height=300,
+        )
+        self._history_text.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=8, pady=(0, 8))
+        page.rowconfigure(1, weight=1)
+
+        actions = ctk.CTkFrame(page, corner_radius=0, fg_color="transparent")
+        actions.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
+        self._button(actions, "刷新", self.render_history).pack(side="left")
+        self._button(actions, "清空历史", self.clear_history).pack(side="left", padx=8)
+        self._history_count = ctk.CTkLabel(actions, text="", font=self.f_small, text_color=LABEL)
+        self._history_count.pack(side="left", padx=8)
+        self.render_history()
+
+    def render_history(self) -> None:
+        entries = self.history.all() if self.history is not None else []
+        self._history_text.configure(state="normal")
+        self._history_text.delete("1.0", "end")
+        self._history_text.insert("1.0", render_entries(entries))
+        self._history_text.configure(state="disabled")
+        self._history_count.configure(text=f"共 {len(entries)} 条" if entries else "")
+
+    def clear_history(self) -> None:
+        if self.history is None:
+            return
+        if not messagebox.askyesno("清空历史", "确定要清空全部历史翻译记录吗？"):
+            return
+        removed = self.history.clear()
+        self.render_history()
+        if self.on_history_cleared is not None:
+            self.on_history_cleared()
+        get_logger().info("已清空历史翻译：%d 条", removed)
+
     # ---- 底部 ----
     def _build_footer(self) -> None:
         row = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
@@ -483,10 +534,14 @@ def open_settings(
     parent: tk.Misc | None = None,
     pause_hotkeys: Callable[[], None] | None = None,
     resume_hotkeys: Callable[[], None] | None = None,
+    history: TranslationHistory | None = None,
+    on_history_cleared: Callable[[], None] | None = None,
 ) -> None:
     if parent is not None:
         SettingsWindow(config, on_saved, parent=parent,
-                       pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys)
+                       pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
+                       history=history, on_history_cleared=on_history_cleared)
         return
     SettingsWindow(config, on_saved,
-                   pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys).run()
+                   pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
+                   history=history, on_history_cleared=on_history_cleared).run()

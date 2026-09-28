@@ -118,3 +118,52 @@ def test_resume_hotkeys_does_nothing_when_hotkeys_disabled():
     app.resume_hotkeys()
 
     assert manager.calls == []
+
+
+def test_finished_translation_goes_into_history():
+    """翻译完成后要记进内存历史，并把最近记录推给界面（含本次）。"""
+
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=FakeOcr(),
+        window=FakeWindow(),
+    )
+    app.translator = DecodingTranslator()
+
+    app.perform_translate(Region(100, 200, 400, 300))
+    messages = wait_for(app, "result")
+
+    entries = app.history.all()
+    assert len(entries) == 1
+    assert entries[0].pairs() == [("Steel Ingot", "[tognI leetS]"), ("磁石", "磁石")]
+
+    pushed = [message for message in messages if message[0] == "history"]
+    assert pushed and pushed[-1][1] == entries           # 界面拿到的是最新历史
+
+
+def test_empty_selection_does_not_go_into_history():
+    """选区内没文字时只是提示，不该记一条空历史。"""
+
+    class _BlindOcr:
+        name = "fake-ocr"
+
+        def recognize(self, image):  # noqa: ARG002 - 接口要求
+            from mchanhua.ocr.base import OcrResult
+
+            return OcrResult(lines=[], elapsed_ms=1.0, backend=self.name)
+
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=_BlindOcr(),
+        window=FakeWindow(),
+    )
+    app.translator = DecodingTranslator()
+
+    app.perform_translate(Region(100, 200, 400, 300))
+    wait_for(app, "notice")
+
+    assert app.history.all() == []

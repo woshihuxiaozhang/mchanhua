@@ -16,6 +16,7 @@ import customtkinter as ctk
 from customtkinter import ScalingTracker
 
 from mchanhua.config import Config
+from mchanhua.history import HistoryEntry, render_entries
 from mchanhua.pipeline import PipelineResult
 from mchanhua.ui.titlebar import use_light_title_bar
 
@@ -78,6 +79,10 @@ def drain_queue(message_queue: "queue.Queue[tuple]", sink, max_messages: int = 5
                 handler(message[1])
             else:  # pragma: no cover - 老界面/测试替身没有这个方法
                 sink.set_status(message[1])
+        elif kind == "history":
+            handler = getattr(sink, "show_history", None)
+            if handler is not None:
+                handler(message[1])
         elif kind == "call":
             message[1]()
     return handled
@@ -122,6 +127,8 @@ class ResultWindow:
         self.f_result = ctk.CTkFont(family=family, size=snap_font_size(ui.result_font_size))
         self.f_source = ctk.CTkFont(family=family, size=snap_font_size(ui.source_font_size))
         self.f_meta = ctk.CTkFont(family=family, size=FONT_STEPS[0])
+        # 时钟图标：Windows 自带 Segoe UI Emoji，用它才能显示出图标而不是方框
+        self.f_icon = ctk.CTkFont(family="Segoe UI Emoji", size=snap_font_size(ui.font_size))
 
         self.card = ctk.CTkFrame(
             self.root, corner_radius=0, fg_color="#FFFFFF", border_width=0   # 直角内框
@@ -130,6 +137,8 @@ class ResultWindow:
 
         self.collapsed = False
         self.compare_mode = False
+        self.history_open = False
+        self.history_provider = None      # Application 会挂上"取最近 20 条"的函数
         self.source_visible = True
         self.action_bars: list = []
         self._drag_origin = None
@@ -139,6 +148,7 @@ class ResultWindow:
         self._build_meta()
         self.set_status("待取词：把鼠标移到物品上按热键")
         self._build_buttons()
+        self._build_history_panel()
         self._fit_text_areas(1, 1)        # 空闲时只留一行高，不留一大片空白
         self._place_window()
         # customtkinter 的尺寸换算在窗口映射之后才生效，等它稳定再摆一次，
@@ -184,6 +194,13 @@ class ResultWindow:
             fg_color="#E8F0FE", text_color="#1A73E8", font=self.f_meta,
         )
         self.provider_chip.pack(side="left")
+        # 时钟按钮：就在原来 ✕ 的位置（标题行最右），点开是窗内展开的历史翻译
+        self.history_button = ctk.CTkButton(
+            row, text="🕘", width=30, height=24, corner_radius=6, font=self.f_icon,
+            fg_color="transparent", hover_color="#F1F1F1", text_color="#5F6368",
+            command=self.toggle_history,
+        )
+        self.history_button.pack(side="right", padx=2)
         # 最小化 / 关闭交给外框的标题栏按钮，这里不再重复放一份
         for widget in (row, self.card):
             widget.bind("<Button-1>", self._start_drag)
@@ -192,12 +209,15 @@ class ResultWindow:
 
     # ---- 译文 / 原文 ----
     def _build_text(self) -> None:
+        # 译文/原文与历史面板都放在 body 里，切换时只换 body 的内容
+        self.body = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
+        self.body.pack(fill="x")
         self.target = ctk.CTkTextbox(
-            self.card, wrap="word", font=self.f_result, fg_color="transparent",
+            self.body, wrap="word", font=self.f_result, fg_color="transparent",
             text_color="#111111", corner_radius=0, border_width=0, height=44,
         )
         self.target.pack(fill="x", padx=12, pady=(6, 0))
-        self.source_area = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
+        self.source_area = ctk.CTkFrame(self.body, corner_radius=0, fg_color="transparent")
         self.source_area.pack(fill="x", padx=12)
         self.source = ctk.CTkTextbox(
             self.source_area, wrap="word", font=self.f_source, fg_color="transparent",
@@ -235,6 +255,63 @@ class ResultWindow:
                 border_width=0 if primary else 1, border_color="#E0E0E0",
                 command=command,
             ).grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0))
+
+    # ---- 历史翻译（窗内折叠面板，不另开窗口）----
+    def _build_history_panel(self) -> None:
+        panel = ctk.CTkFrame(self.body, corner_radius=8, fg_color="#F7F6F3",
+                             border_width=1, border_color="#EAEAEA")
+        self.history_panel = panel
+
+        head = ctk.CTkFrame(panel, corner_radius=0, fg_color="transparent")
+        head.pack(fill="x", padx=10, pady=(8, 0))
+        ctk.CTkLabel(head, text="历史翻译（最近 20 次）", font=self.f_source,
+                     text_color="#5F6368").pack(side="left")
+        ctk.CTkLabel(head, text="退出程序后自动清空", font=self.f_meta,
+                     text_color="#9A9A9A").pack(side="right")
+
+        self.history_text = ctk.CTkTextbox(
+            panel, wrap="word", font=self.f_source, fg_color="transparent",
+            text_color="#3C4043", corner_radius=0, border_width=0, height=150,
+        )
+        self.history_text.pack(fill="x", padx=10, pady=(6, 10))
+        self._set_history_text(render_entries([]))
+
+    def _set_history_text(self, text: str) -> None:
+        self.history_text.configure(state="normal")
+        self.history_text.delete("1.0", "end")
+        self.history_text.insert("1.0", text)
+        self.history_text.configure(state="disabled")
+
+    def show_history(self, entries: list[HistoryEntry]) -> None:
+        """更新历史面板内容（面板没展开也照更新，下次打开就是最新的）。"""
+
+        self._set_history_text(render_entries(entries))
+
+    def refresh_history(self) -> None:
+        provider = self.history_provider
+        if provider is not None:
+            self.show_history(provider())
+
+    def toggle_history(self) -> None:
+        """时钟按钮：在当前窗口里展开/收起历史翻译。"""
+
+        if not self.history_open and self.collapsed:
+            self.toggle_collapsed()          # 折叠状态下先展开，否则没地方显示
+        self.history_open = not self.history_open
+        if self.history_open:
+            self.target.pack_forget()
+            self.source_area.pack_forget()
+            self.history_panel.pack(fill="x", padx=12, pady=(6, 0))
+            self.history_button.configure(fg_color="#E8F0FE", text_color="#1A73E8")
+            self.refresh_history()
+            self.set_status("历史翻译：最近 20 次（再点时钟收起，设置里可看全部）")
+        else:
+            self.history_panel.pack_forget()
+            self.target.pack(fill="x", padx=12, pady=(6, 0))
+            if not self.collapsed:
+                self.source_area.pack(fill="x", padx=12)
+            self.history_button.configure(fg_color="transparent", text_color="#5F6368")
+        self._place_window()
 
     def _provider_label(self) -> str:
         from mchanhua.translate.providers import find_preset
@@ -282,7 +359,8 @@ class ResultWindow:
                 bar.pack_forget()
             self.set_status("已折叠（双击标题行可展开）")
         else:
-            self.source_area.pack(fill="x", padx=12)
+            if not self.history_open:      # 正在看历史时别把原文区又塞回来
+                self.source_area.pack(fill="x", padx=12)
             for bar in self.action_bars:
                 bar.pack(fill="x", padx=12, pady=(8, 8))
             self.set_status("已展开（译文在上，原文在下）")
@@ -328,6 +406,8 @@ class ResultWindow:
     def show_notice(self, text: str) -> None:
         """只显示一条提示（例如"选区内没有识别到文字"），并清掉上一次的结果。"""
 
+        if self.history_open:
+            self.toggle_history()
         self._clear()
         self.set_status(text)
 
@@ -345,6 +425,8 @@ class ResultWindow:
         self.set_status(f"OCR {elapsed_ms:.0f} ms · 正在翻译…")
 
     def show_result(self, result: PipelineResult) -> None:
+        if self.history_open:              # 有新结果就先回到译文视图
+            self.toggle_history()
         self.target.delete("1.0", "end")
         self.target.insert("1.0", "\n".join(result.output_lines))
         self.source.delete("1.0", "end")
