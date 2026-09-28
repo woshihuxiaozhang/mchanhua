@@ -389,6 +389,26 @@ def test_moving_window_does_not_jump_back_on_new_result():
         window.root.destroy()
 
 
+def test_place_window_keeps_position_after_user_moved_it():
+    """启动后那次"按内容再摆一次"也不能把用户已经挪走的窗口拉回来。"""
+
+    window = _window()
+    try:
+        window.root.update_idletasks()
+        window._place_window()
+        window.root.geometry("+200+260")
+        window.root.update_idletasks()
+        moved_to = (window.root.winfo_x(), window.root.winfo_y())
+
+        window._user_moved = True          # 用户拖动窗口时会置上这个标记
+        window._place_window()
+        window.root.update_idletasks()
+
+        assert (window.root.winfo_x(), window.root.winfo_y()) == moved_to
+    finally:
+        window.root.destroy()
+
+
 def test_history_message_updates_the_panel():
     import queue as queue_module
 

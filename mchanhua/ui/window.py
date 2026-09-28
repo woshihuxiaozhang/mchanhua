@@ -149,6 +149,7 @@ class ResultWindow:
         self._status_before_history = ""
         self._history_entries: list[HistoryEntry] = []
         self._height_before_history = 0
+        self._user_moved = False          # 用户手动挪过窗口后，不再自动改位置
         self.source_visible = True
         self.action_bars: list = []
         self._drag_origin = None
@@ -176,6 +177,11 @@ class ResultWindow:
 
         ui = self.config.ui
         logical_w, logical_h = self._required_size()
+        if self._user_moved:
+            # 窗口已经被拖到别处：只按内容调尺寸，别把它拉回配置里的位置
+            return self._resize_keep_position(
+                HISTORY_WINDOW_MIN_H if self.history_open else 0
+            )
         scaling = self._scaling()
         physical_w = int(round(logical_w * scaling))
         physical_h = int(round(logical_h * scaling))
@@ -429,6 +435,7 @@ class ResultWindow:
             pass
 
     def _start_drag(self, event) -> None:
+        self._user_moved = True           # 用户开始拖窗口：之后不再自动摆位置
         self._drag_origin = (event.x_root - self.root.winfo_x(), event.y_root - self.root.winfo_y())
 
     def _drag(self, event) -> None:
