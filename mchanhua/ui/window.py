@@ -23,6 +23,13 @@ from mchanhua.ui.titlebar import use_light_title_bar
 FONT_STEPS = (11, 13, 15, 19)
 TRANSPARENT = "#010203"          # 只用来做透明键，不参与主题
 
+# 历史翻译浮层：刻意做得比主窗口小、纯白不透明，盖在窗口内容之上
+HISTORY_PANEL_W = 300
+HISTORY_PANEL_H = 230
+HISTORY_PANEL_TOP = 46
+HISTORY_PANEL_RIGHT = 10
+HISTORY_WINDOW_MIN_H = 340       # 展开浮层时窗口至少这么高（逻辑像素）
+
 
 def snap_font_size(size: int) -> int:
     return min(FONT_STEPS, key=lambda step: abs(step - size))
@@ -140,6 +147,8 @@ class ResultWindow:
         self.history_open = False
         self.history_provider = None      # Application 会挂上"取最近 20 条"的函数
         self._status_before_history = ""
+        self._history_entries: list[HistoryEntry] = []
+        self._height_before_history = 0
         self.source_visible = True
         self.action_bars: list = []
         self._drag_origin = None
@@ -166,18 +175,52 @@ class ResultWindow:
         """
 
         ui = self.config.ui
-        self.root.update_idletasks()
-        scaling = float(ScalingTracker.get_window_dpi_scaling(self.root)) or 1.0
+        logical_w, logical_h = self._required_size()
+        scaling = self._scaling()
+        physical_w = int(round(logical_w * scaling))
+        physical_h = int(round(logical_h * scaling))
         screen_w = self.root.winfo_screenwidth()      # 物理像素
         screen_h = self.root.winfo_screenheight()
+        x, y = resolve_position(ui, (screen_w, screen_h), (physical_w, physical_h))
+        self.root.geometry(f"{logical_w}x{logical_h}+{x}+{y}")
+        return physical_w, physical_h
+
+    def _scaling(self) -> float:
+        """customtkinter 实际使用的 DPI 缩放系数。"""
+
+        return float(ScalingTracker.get_window_dpi_scaling(self.root)) or 1.0
+
+    def _required_size(self) -> tuple[int, int]:
+        """按内容算出窗口需要的逻辑尺寸（配置里的宽高只当下限）。"""
+
+        ui = self.config.ui
+        self.root.update_idletasks()
+        scaling = self._scaling()
         # winfo_req* 是物理像素，先换回逻辑像素跟配置取大，再换回物理算位置
         needed_w = int(self.root.winfo_reqwidth() / scaling + 0.5)
         needed_h = int(self.root.winfo_reqheight() / scaling + 0.5)
         logical_w = max(int(ui.width), needed_w)
         logical_h = max(needed_h, int(ui.height))     # 高度贴内容，配置值只当下限
+        return logical_w, logical_h
+
+    def _resize_keep_position(self, extra_h: int = 0) -> tuple[int, int]:
+        """只按内容改尺寸、**不动位置**。
+
+        窗口被挪过之后，再触发翻译/折叠/历史时不能跳回初始位置（曾经的 bug）。
+        extra_h 用来给历史浮层留出高度。
+        """
+
+        logical_w, logical_h = self._required_size()
+        if extra_h:
+            logical_h = max(logical_h, int(extra_h))
+        scaling = self._scaling()
         physical_w = int(round(logical_w * scaling))
         physical_h = int(round(logical_h * scaling))
-        x, y = resolve_position(ui, (screen_w, screen_h), (physical_w, physical_h))
+        x, y = self.root.winfo_x(), self.root.winfo_y()      # 当前位置（物理像素）
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        x = max(0, min(x, screen_w - physical_w))
+        y = max(0, min(y, screen_h - physical_h))
         self.root.geometry(f"{logical_w}x{logical_h}+{x}+{y}")
         return physical_w, physical_h
 
@@ -257,70 +300,109 @@ class ResultWindow:
                 command=command,
             ).grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0))
 
-    # ---- 历史翻译（窗内折叠面板，不另开窗口）----
+    # ---- 历史翻译（叠在原窗口上的小浮层）----
     def _build_history_panel(self) -> None:
-        # 就是本窗口内容的一部分：不加底色、不加边框、不圆角，
-        # 免得看起来像"在原窗口上又叠了一个小窗口"
-        panel = ctk.CTkFrame(self.body, corner_radius=0, fg_color="transparent")
+        """一块比主窗口小、纯白不透明的浮层，用 place 盖在窗口内容上。
+
+        它的样式刻意跟主窗口不一样：自己的标题条 + 列表式记录（时间徽章、译文、原文）。
+        """
+
+        panel = ctk.CTkFrame(
+            self.card, corner_radius=10, fg_color="#FFFFFF", border_width=1,
+            border_color="#D5D8DD", width=HISTORY_PANEL_W, height=HISTORY_PANEL_H,
+        )
         self.history_panel = panel
 
-        head = ctk.CTkFrame(panel, corner_radius=0, fg_color="transparent")
-        head.pack(fill="x", padx=10, pady=(8, 0))
-        ctk.CTkLabel(head, text="历史翻译（最近 20 次）", font=self.f_source,
-                     text_color="#5F6368").pack(side="left")
-        ctk.CTkLabel(head, text="退出程序后自动清空", font=self.f_meta,
-                     text_color="#9A9A9A").pack(side="right")
+        bar = ctk.CTkFrame(panel, corner_radius=0, fg_color="#EDF1F7", height=28)
+        bar.pack(fill="x")
+        ctk.CTkLabel(bar, text="🕘 历史翻译", font=self.f_source,
+                     text_color="#33415C").pack(side="left", padx=10)
+        ctk.CTkButton(bar, text="✕", width=22, height=20, corner_radius=4,
+                      fg_color="transparent", hover_color="#DDE3EC", text_color="#5F6368",
+                      font=self.f_meta, command=self.toggle_history).pack(side="right", padx=6, pady=4)
+        ctk.CTkLabel(bar, text="最近 20 次 · 退出后清空", font=self.f_meta,
+                     text_color="#8A93A5").pack(side="right", padx=2)
 
-        self.history_text = ctk.CTkTextbox(
-            panel, wrap="word", font=self.f_source, fg_color="transparent",
-            text_color="#3C4043", corner_radius=0, border_width=0, height=150,
-        )
-        self.history_text.pack(fill="both", expand=True, padx=10, pady=(6, 10))
-        self._set_history_text(render_entries([]))
-        # 面板空白处也能拖着窗口走（文本框里仍然可以正常选中文字）
-        for widget in (panel, head):
+        self.history_list = ctk.CTkScrollableFrame(panel, corner_radius=0, fg_color="transparent")
+        self.history_list.pack(fill="both", expand=True, padx=6, pady=6)
+        self._render_history_list([])
+
+        # 浮层的空白处按住也能拖整个窗口（它自己不能单独移动，只跟着窗口走）
+        for widget in (panel, bar):
             widget.bind("<Button-1>", self._start_drag)
             widget.bind("<B1-Motion>", self._drag)
 
-    def _set_history_text(self, text: str) -> None:
-        self.history_text.configure(state="normal")
-        self.history_text.delete("1.0", "end")
-        self.history_text.insert("1.0", text)
-        self.history_text.configure(state="disabled")
+    def _clear_history_list(self) -> None:
+        for child in list(self.history_list.winfo_children()):
+            child.destroy()
+
+    def _render_history_list(self, entries: list[HistoryEntry]) -> None:
+        self._clear_history_list()
+        if not entries:
+            ctk.CTkLabel(self.history_list, text="还没有翻译记录", font=self.f_source,
+                         text_color="#9AA0A6").pack(anchor="w", padx=6, pady=14)
+            return
+        for entry in entries:
+            block = ctk.CTkFrame(self.history_list, corner_radius=6, fg_color="#F7F8FA")
+            block.pack(fill="x", padx=1, pady=(0, 6))
+            head = ctk.CTkFrame(block, corner_radius=0, fg_color="transparent")
+            head.pack(fill="x", padx=8, pady=(6, 0))
+            ctk.CTkLabel(head, text=entry.clock, font=self.f_meta, text_color="#1A73E8",
+                         fg_color="#E8F0FE", corner_radius=4, width=44, height=18).pack(side="left")
+            if entry.region:
+                ctk.CTkLabel(head, text=entry.region, font=self.f_meta,
+                             text_color="#B0B4BA").pack(side="right")
+            for source, target in entry.pairs():
+                ctk.CTkLabel(block, text=target, font=self.f_source, text_color="#1B1B1B",
+                             anchor="w", justify="left", wraplength=240).pack(
+                    fill="x", padx=10, pady=(4, 0)
+                )
+                ctk.CTkLabel(block, text=source, font=self.f_meta, text_color="#8A8F98",
+                             anchor="w", justify="left", wraplength=240).pack(
+                    fill="x", padx=10, pady=(0, 4)
+                )
 
     def show_history(self, entries: list[HistoryEntry]) -> None:
-        """更新历史面板内容（面板没展开也照更新，下次打开就是最新的）。"""
+        """更新历史内容（浮层没展开也照更新，下次打开就是最新的）。"""
 
-        self._set_history_text(render_entries(entries))
+        self._history_entries = list(entries)
+        if self.history_open:
+            self._render_history_list(self._history_entries)
 
     def refresh_history(self) -> None:
         provider = self.history_provider
         if provider is not None:
             self.show_history(provider())
+        elif self.history_open:
+            self._render_history_list(self._history_entries)
+
+    def history_text(self) -> str:
+        """把当前历史内容拼成文本（测试与排查用）。"""
+
+        return render_entries(self._history_entries)
 
     def toggle_history(self) -> None:
-        """时钟按钮：在当前窗口里展开/收起历史翻译。"""
+        """时钟按钮：在窗口上叠一块小浮层显示历史，再点收起。"""
 
         if not self.history_open and self.collapsed:
-            self.toggle_collapsed()          # 折叠状态下先展开，否则没地方显示
+            self.toggle_collapsed()          # 折叠状态下先展开
         self.history_open = not self.history_open
         if self.history_open:
             self._status_before_history = self.status_text()
-            self.target.pack_forget()
-            self.source_area.pack_forget()
-            self.history_panel.pack(fill="both", expand=True, padx=12, pady=(6, 0))
-            self.history_button.configure(fg_color="#E8F0FE", text_color="#1A73E8")
+            self._height_before_history = self.root.winfo_height()
             self.refresh_history()
+            self.history_panel.place(
+                relx=1.0, x=-HISTORY_PANEL_RIGHT, y=HISTORY_PANEL_TOP, anchor="ne"
+            )
+            self.history_button.configure(fg_color="#E8F0FE", text_color="#1A73E8")
             self.set_status("历史翻译：最近 20 次（再点时钟收起，设置里可看全部）")
         else:
-            self.history_panel.pack_forget()
-            self.target.pack(fill="x", padx=12, pady=(6, 0))
-            if not self.collapsed:
-                self.source_area.pack(fill="x", padx=12)
+            self.history_panel.place_forget()
             self.history_button.configure(fg_color="transparent", text_color="#5F6368")
             # 收起后恢复原来的状态文字，别让"历史翻译…"留在状态栏里
             self.set_status(self._status_before_history or "待取词：把鼠标移到物品上按热键")
-        self._place_window()
+        # 只改尺寸、不动位置：挪过窗口之后也不会跳回原位
+        self._resize_keep_position(HISTORY_WINDOW_MIN_H if self.history_open else 0)
 
     def _provider_label(self) -> str:
         from mchanhua.translate.providers import find_preset
@@ -373,7 +455,8 @@ class ResultWindow:
             for bar in self.action_bars:
                 bar.pack(fill="x", padx=12, pady=(8, 8))
             self.set_status("已展开（译文在上，原文在下）")
-        self._place_window()          # 折叠后也要贴着内容收小，不留一大块空白
+        # 折叠/展开只改尺寸，别把挪过的窗口拉回原位
+        self._resize_keep_position(HISTORY_WINDOW_MIN_H if self.history_open else 0)
 
     def set_compare_mode(self, enabled: bool) -> None:
         if bool(enabled) == (not self.collapsed):
@@ -467,7 +550,7 @@ class ResultWindow:
 
         self.target.configure(height=units(result_lines, self.f_result, 5))
         self.source.configure(height=units(source_lines, self.f_source, 4))
-        self._place_window()
+        self._resize_keep_position()
 
     def on_poll(self) -> None:
         if self.heartbeat is not None:
