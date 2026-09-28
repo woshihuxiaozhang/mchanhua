@@ -283,3 +283,84 @@ def test_window_comes_back_before_ocr_and_translation(workdir):
         index for index, message in enumerate(messages) if message[0] == "result"
     )
     assert show_index < result_index
+
+
+# ---- 框选（Alt+V / Alt+/）：框的时候窗口得先让开 ----
+
+
+def _app_with_fake_pick(monkeypatch, region):
+    window = FakeWindow()
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=FakeOcr(),
+        window=window,
+    )
+    app.translator = DecodingTranslator()
+    seen: list[int] = []
+
+    def fake_pick(_monitor, _parent):
+        seen.append(window.root.withdrawn)      # 框选那一刻窗口藏了没
+        return region
+
+    monkeypatch.setattr("mchanhua.app.pick_region", fake_pick)
+    return app, window, seen
+
+
+def test_select_and_translate_hides_window_while_picking(monkeypatch):
+    """Alt+/：框选时窗口要藏起来（否则挡住字幕框不到），抓完再放回来。"""
+
+    app, window, seen = _app_with_fake_pick(monkeypatch, Region(100, 200, 400, 300))
+
+    app.perform_select_and_translate()
+    messages = wait_for(app, "result")
+    for call in [message[1] for message in messages if message[0] == "call"]:
+        call()
+
+    assert seen == [1]                     # 框选时窗口已经藏好
+    assert window.root.deiconified >= 1    # 抓完图放回来
+    assert app._hidden_for_capture is False
+
+
+def test_select_and_translate_keeps_window_hidden_until_captured(monkeypatch):
+    """抓图还没开始前不能把窗口又露出来，否则会被拍进画面。"""
+
+    app, window, _seen = _app_with_fake_pick(monkeypatch, Region(100, 200, 400, 300))
+
+    captured: list[str] = []
+
+    def fake_grab(region):
+        captured.append("grabbed")
+        # 抓图这一刻窗口必须是藏着的
+        assert window.root.deiconified == 0
+        return FakeGrabber().grab(region or Region(0, 0, 10, 10))
+
+    app.grabber.grab = fake_grab
+    app.perform_select_and_translate()
+    wait_for(app, "call")
+
+    assert captured == ["grabbed"]
+
+
+def test_select_and_translate_cancel_restores_window(monkeypatch):
+    """Alt+/ 框选取消：不翻译，窗口也要放回来。"""
+
+    app, window, seen = _app_with_fake_pick(monkeypatch, None)
+
+    app.perform_select_and_translate()
+
+    assert seen == [1]
+    assert window.root.deiconified >= 1
+
+
+def test_select_region_restores_window(monkeypatch):
+    """Alt+V：只框选不翻译，框完立刻把窗口放回来。"""
+
+    app, window, seen = _app_with_fake_pick(monkeypatch, Region(100, 200, 400, 300))
+
+    app.perform_select_region()
+
+    assert seen == [1]
+    assert window.root.deiconified >= 1
+    assert app.config.regions.custom_region() is not None

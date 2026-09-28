@@ -523,27 +523,48 @@ class Application:
     def perform_select_region(self) -> None:
         """只框选并保存，不翻译（默认 Alt+V）。"""
 
-        if self._pick_and_save_region() is None:
-            self.window.set_status("已取消框选")
+        try:
+            if self._pick_and_save_region() is None:
+                self.window.set_status("已取消框选")
+        finally:
+            self._show_after_capture()      # 这一路不抓图，框完就把窗口放回来
 
     def perform_select_and_translate(self) -> None:
         """框选后立即翻译该选区（Alt+/）。**不保存**选区，避免覆盖 Alt+V 设定的区域。"""
 
         region = self._pick_region()
         if region is None:
+            self._show_after_capture()      # 取消框选：窗口放回来
             self.window.set_status("已取消框选")
             return
+        # 框选时窗口已经藏起来了，这里保持藏着直到抓完图（抓到图后自动恢复），
+        # 否则刚框完就把窗口露出来，又会被拍进画面。
         self.perform_translate(region)
 
     def _pick_region(self) -> Region | None:
         """只弹出框选，不做任何持久化（供 Alt+/ 临时取词使用）。"""
 
+        # 框选时先把自己的窗口收起来：不然挡在屏幕上的字幕根本框不到
+        self._hide_window_for_pick()
         try:
             return pick_region(self.grabber.primary_monitor(), self.window.root)
         finally:
             cleared = reset_pressed_state()
             if cleared:
                 get_logger().info("框选结束后清理了 %d 个残留按键状态", cleared)
+
+    def _hide_window_for_pick(self) -> None:
+        """框选期间把窗口藏起来（抓图或框选结束后用 _show_after_capture 放回来）。"""
+
+        root = getattr(self.window, "root", None)
+        if root is None or not hasattr(root, "withdraw"):
+            return
+        try:
+            root.withdraw()
+            self._hidden_for_capture = True
+            root.update_idletasks()
+        except Exception:  # pragma: no cover - 隐藏失败不影响框选
+            get_logger().warning("框选前隐藏窗口失败", exc_info=True)
 
     def _save_config(self) -> bool:
         """把当前配置（含自定义选区）写回配置文件。"""
