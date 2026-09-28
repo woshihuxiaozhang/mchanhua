@@ -21,6 +21,19 @@ class ConfigError(Exception):
 
 APP_DIR_NAME = "mchanhua"
 
+# 配置结构版本：写进 config.toml 的 [meta] version。
+# 旧版本的 exe 不知道这个字段，它保存配置时会把 [meta] 丢掉，
+# 所以"文件里没有 [meta]"就等于"这份配置来自旧版本"，需要迁移。
+CONFIG_VERSION = 3
+
+# 旧版本用过的热键默认值。一旦发现配置里还是这些老值，就说明它来自旧版本，
+# 直接升级成新默认值；用户自己改成别的值的项一律原样保留。
+LEGACY_HOTKEYS: dict[str, dict[str, str]] = {
+    "translate": {"ctrl+alt+q": "ctrl+alt"},
+    "translate_clipboard": {"ctrl+alt+s": "alt+s"},
+    "quit": {"ctrl+alt+x": ""},
+}
+
 
 def default_config_path() -> Path:
     base = os.environ.get("APPDATA")
@@ -141,6 +154,8 @@ class Config:
     regions: RegionsConfig = field(default_factory=RegionsConfig)
     glossary: dict[str, str] = field(default_factory=dict)
     loaded_from: Path | None = field(default=None, compare=False)
+    version: int = field(default=CONFIG_VERSION, compare=False)
+    migrations: list[str] = field(default_factory=list, compare=False)
 
     @property
     def resolved_api_key(self) -> str:
@@ -190,6 +205,24 @@ def _build(cls: type, data: dict[str, Any], section: str) -> Any:
     return instance
 
 
+def migrate(config: Config, version: int | None) -> list[str]:
+    """把旧版本残留的配置修好，返回这次改了哪些项。
+
+    version 为 None 表示文件里没有 [meta]（旧版本写的），按最老版本处理。
+    """
+
+    changes: list[str] = []
+    if version is None or version < CONFIG_VERSION:
+        for field_name, mapping in LEGACY_HOTKEYS.items():
+            current = (getattr(config.hotkeys, field_name) or "").strip().lower()
+            replacement = mapping.get(current)
+            if replacement is not None and replacement != current:
+                setattr(config.hotkeys, field_name, replacement)
+                changes.append(f"hotkeys.{field_name}: {current} → {replacement or '（留空）'}")
+    config.version = CONFIG_VERSION
+    return changes
+
+
 def loads(text: str) -> Config:
     try:
         data = tomllib.loads(text)
@@ -199,6 +232,10 @@ def loads(text: str) -> Config:
     fixed_raw = _section(data, "regions").get("fixed", {}) or {}
     if not isinstance(fixed_raw, dict):
         raise ConfigError("[regions.fixed] 必须是表（table）")
+
+    meta = _section(data, "meta")
+    version_raw = meta.get("version")
+    version = version_raw if isinstance(version_raw, int) else None
 
     config = Config(
         hotkeys=_build(HotkeysConfig, _section(data, "hotkeys"), "hotkeys"),
@@ -213,6 +250,7 @@ def loads(text: str) -> Config:
         glossary={str(k): str(v) for k, v in (_section(data, "glossary")).items()},
     )
     config.validate()
+    config.migrations = migrate(config, version)
     return config
 
 
@@ -236,6 +274,13 @@ def load_config(path: Path | None = None, project_dir: Path | None = None) -> Co
         return config
     config = loads(target.read_text(encoding="utf-8"))
     config.loaded_from = target
+    if config.migrations:
+        # 迁移结果立刻落盘：否则下次启动还得再迁一次，日志里会反复出现同样的提示。
+        try:
+            save_config(config, target)
+            print(f"[配置] 已把旧版本配置升级到 v{CONFIG_VERSION}：{'；'.join(config.migrations)}")
+        except OSError as exc:  # pragma: no cover - 磁盘只读等极端情况
+            print(f"[配置] 旧版本配置升级失败（只影响这次运行）：{exc}")
     return config
 
 
@@ -252,6 +297,9 @@ def dumps(config: Config) -> str:
     """把配置写成 TOML。支持一层表和标量，够用且无额外依赖。"""
 
     lines: list[str] = []
+    lines.append("[meta]")
+    lines.append(f"version = {int(config.version)}")
+    lines.append("")
     for section in ("hotkeys", "capture", "ocr", "translate", "ui"):
         lines.append(f"[{section}]")
         for key, value in asdict(getattr(config, section)).items():

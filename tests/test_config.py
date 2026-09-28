@@ -1,17 +1,38 @@
 import pytest
 
 from mchanhua.config import (
+    CONFIG_VERSION,
     Config,
     ConfigError,
     default_config_path,
     dumps,
     load_config,
     loads,
+    migrate,
     project_config_path,
     resolve_config_path,
     save_config,
 )
 from mchanhua.geometry import Region
+
+
+# 旧版本（v2 及更早的 exe）写出来的配置文件：没有 [meta]，热键还是老默认值。
+LEGACY_TEXT = """
+[hotkeys]
+translate = "ctrl+alt+q"
+translate_region = "alt+/"
+translate_fullscreen = "alt+m"
+translate_clipboard = "ctrl+alt+s"
+select_region = "alt+v"
+quit = "ctrl+alt+x"
+
+[translate]
+provider = "deepseek"
+api_key = "sk-keep-me"
+
+[ui]
+background = "#1b1b1f"
+"""
 
 
 def test_defaults_when_file_missing(workdir):
@@ -121,3 +142,61 @@ def test_save_config_defaults_to_loaded_source(workdir, monkeypatch):
     assert returned == path
     assert "1,2,3,4" in path.read_text(encoding="utf-8")
     assert not (workdir / "appdata" / "mchanhua" / "config.toml").exists()
+
+
+# ---- 配置版本迁移：旧 exe 写坏的配置必须自动修好 ----
+
+
+def test_legacy_hotkeys_are_migrated():
+    """旧版本写的配置文件会在加载时升级到新默认热键。"""
+
+    config = loads(LEGACY_TEXT)
+    assert config.hotkeys.translate == "ctrl+alt"
+    assert config.hotkeys.translate_clipboard == "alt+s"
+    assert config.hotkeys.quit == ""          # 新版本不再注册退出热键
+    assert config.version == CONFIG_VERSION
+    assert config.migrations, "迁移过的配置要能说明改了什么"
+    # 与热键无关的内容原样保留
+    assert config.translate.api_key == "sk-keep-me"
+
+
+def test_user_modified_hotkeys_survive_migration():
+    """只有"旧默认值"会被改写，用户自己设过的值不动。"""
+
+    config = loads("[hotkeys]\ntranslate = \"alt+t\"\nquit = \"ctrl+shift+q\"\n")
+    assert config.hotkeys.translate == "alt+t"
+    assert config.hotkeys.quit == "ctrl+shift+q"
+    assert config.migrations == []
+
+
+def test_migration_is_persisted_once(workdir):
+    """迁移后立刻落盘并带上 [meta] version，下次启动不再重复迁移。"""
+
+    path = workdir / "config.toml"
+    path.write_text(LEGACY_TEXT, encoding="utf-8")
+
+    first = load_config(path)
+    assert first.hotkeys.translate == "ctrl+alt"
+    text = path.read_text(encoding="utf-8")
+    assert "[meta]" in text
+    assert f"version = {CONFIG_VERSION}" in text
+    assert "ctrl+alt+q" not in text
+
+    again = load_config(path)
+    assert again.migrations == []
+    assert again.hotkeys.translate == "ctrl+alt"
+
+
+def test_current_version_is_not_migrated():
+    """新版本自己写出来的配置不会再被迁移。"""
+
+    text = dumps(Config())
+    assert f"version = {CONFIG_VERSION}" in text
+    assert loads(text).migrations == []
+
+
+def test_migrate_ignores_newer_version():
+    config = Config()
+    config.hotkeys.translate = "ctrl+alt+q"
+    assert migrate(config, CONFIG_VERSION + 1) == []
+    assert config.hotkeys.translate == "ctrl+alt+q"

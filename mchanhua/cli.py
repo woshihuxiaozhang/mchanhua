@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 from PIL import Image
@@ -238,19 +240,40 @@ def cmd_settings(args: argparse.Namespace) -> int:
 def cmd_run(args: argparse.Namespace) -> int:
     from mchanhua.app import Application
     from mchanhua.config import resolve_config_path
+    from mchanhua.instance_guard import confirm_close, describe, list_instances, should_close, terminate
     from mchanhua.single_instance import SingleInstance
 
     enable_dpi_awareness()
     guard = SingleInstance()
     if not guard.acquire():
-        print("已经有一个 mchanhua 在运行了（同时只允许开一个，避免热键重复触发）")
-        get_logger().warning("检测到已有实例在运行，本次启动退出")
-        return 1
+        # 旧实例占着热键：新版界面看起来换了，按热键却还是旧行为。
+        stale = [item for item in list_instances() if should_close(item, os.getpid())]
+        get_logger().warning("检测到已有实例在运行：%s", describe(stale))
+        if not stale or not confirm_close(stale):
+            print("已经有一个 mchanhua 在运行了（同时只允许开一个，避免热键重复触发）")
+            get_logger().warning("用户未选择结束旧实例，本次启动退出")
+            return 1
+        for item in stale:
+            get_logger().warning("结束旧实例：%s -> %s", item.display, terminate(item.pid))
+        for _ in range(20):          # 等它真的退出，最多 2 秒
+            time.sleep(0.1)
+            if not [item for item in list_instances() if should_close(item, os.getpid())]:
+                break
+        guard = SingleInstance()
+        if not guard.acquire():
+            get_logger().error("旧实例仍未退出，本次启动取消")
+            return 1
     config = load_config(args.config)
     # 启动自检：把"实际加载到的配置"写进日志，便于排查"改了配置却没生效"
+    if config.migrations:
+        get_logger().warning(
+            "检测到旧版本配置，已自动升级到 v%s：%s",
+            config.version,
+            "；".join(config.migrations),
+        )
     get_logger().info(
         "启动自检：配置=%s | 热键 translate=%r clipboard=%r fullscreen=%r quit=%r"
-        " | 服务=%s | key=%s | 主题背景=%s",
+        " | 服务=%s | key=%s | 主题背景=%s | 窗口=%sx%s 透明度=%s",
         resolve_config_path(args.config),
         config.hotkeys.translate,
         config.hotkeys.translate_clipboard,
@@ -259,6 +282,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         config.translate.provider,
         "已设置" if config.resolved_api_key else "未设置",
         config.ui.background,
+        config.ui.width,
+        config.ui.height,
+        config.ui.opacity,
     )
     if args.region:
         config.regions.fixed["tooltip"] = args.region
