@@ -139,6 +139,7 @@ class ResultWindow:
         self.compare_mode = False
         self.history_open = False
         self.history_provider = None      # Application 会挂上"取最近 20 条"的函数
+        self._status_before_history = ""
         self.source_visible = True
         self.action_bars: list = []
         self._drag_origin = None
@@ -211,7 +212,7 @@ class ResultWindow:
     def _build_text(self) -> None:
         # 译文/原文与历史面板都放在 body 里，切换时只换 body 的内容
         self.body = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
-        self.body.pack(fill="x")
+        self.body.pack(fill="both", expand=True)      # 铺满，避免底下留一片白
         self.target = ctk.CTkTextbox(
             self.body, wrap="word", font=self.f_result, fg_color="transparent",
             text_color="#111111", corner_radius=0, border_width=0, height=44,
@@ -258,8 +259,9 @@ class ResultWindow:
 
     # ---- 历史翻译（窗内折叠面板，不另开窗口）----
     def _build_history_panel(self) -> None:
-        panel = ctk.CTkFrame(self.body, corner_radius=8, fg_color="#F7F6F3",
-                             border_width=1, border_color="#EAEAEA")
+        # 就是本窗口内容的一部分：不加底色、不加边框、不圆角，
+        # 免得看起来像"在原窗口上又叠了一个小窗口"
+        panel = ctk.CTkFrame(self.body, corner_radius=0, fg_color="transparent")
         self.history_panel = panel
 
         head = ctk.CTkFrame(panel, corner_radius=0, fg_color="transparent")
@@ -273,8 +275,12 @@ class ResultWindow:
             panel, wrap="word", font=self.f_source, fg_color="transparent",
             text_color="#3C4043", corner_radius=0, border_width=0, height=150,
         )
-        self.history_text.pack(fill="x", padx=10, pady=(6, 10))
+        self.history_text.pack(fill="both", expand=True, padx=10, pady=(6, 10))
         self._set_history_text(render_entries([]))
+        # 面板空白处也能拖着窗口走（文本框里仍然可以正常选中文字）
+        for widget in (panel, head):
+            widget.bind("<Button-1>", self._start_drag)
+            widget.bind("<B1-Motion>", self._drag)
 
     def _set_history_text(self, text: str) -> None:
         self.history_text.configure(state="normal")
@@ -299,9 +305,10 @@ class ResultWindow:
             self.toggle_collapsed()          # 折叠状态下先展开，否则没地方显示
         self.history_open = not self.history_open
         if self.history_open:
+            self._status_before_history = self.status_text()
             self.target.pack_forget()
             self.source_area.pack_forget()
-            self.history_panel.pack(fill="x", padx=12, pady=(6, 0))
+            self.history_panel.pack(fill="both", expand=True, padx=12, pady=(6, 0))
             self.history_button.configure(fg_color="#E8F0FE", text_color="#1A73E8")
             self.refresh_history()
             self.set_status("历史翻译：最近 20 次（再点时钟收起，设置里可看全部）")
@@ -311,6 +318,8 @@ class ResultWindow:
             if not self.collapsed:
                 self.source_area.pack(fill="x", padx=12)
             self.history_button.configure(fg_color="transparent", text_color="#5F6368")
+            # 收起后恢复原来的状态文字，别让"历史翻译…"留在状态栏里
+            self.set_status(self._status_before_history or "待取词：把鼠标移到物品上按热键")
         self._place_window()
 
     def _provider_label(self) -> str:

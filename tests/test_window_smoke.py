@@ -307,6 +307,7 @@ def test_clock_button_expands_history_inside_the_same_window():
         window.history_provider = history.recent
         window.root.update_idletasks()
         before = window._place_window()[1]
+        idle_status = window.status_text()                   # 打开前的状态（"待取词…"）
         assert window.history_open is False
         assert window.history_panel.winfo_manager() == ""    # 初始不占位置
 
@@ -316,6 +317,11 @@ def test_clock_button_expands_history_inside_the_same_window():
         assert window.history_open is True
         assert window.history_panel.winfo_manager() == "pack"
         assert window.target.winfo_manager() == ""           # 译文区让位给历史
+        # 面板就是窗口内容的一部分：铺满、没有自己的边框和底色
+        pack_info = window.history_panel.pack_info()
+        assert pack_info["fill"] == "both"
+        assert int(window.history_panel.cget("border_width")) == 0
+        assert int(window.history_panel.cget("corner_radius")) == 0
         text = window.history_text.get("1.0", "end")
         assert "[14:35]" in text and "钢锭" in text and "Steel Ingot" in text
         assert window._place_window()[1] >= before          # 窗口够高放得下面板
@@ -326,6 +332,7 @@ def test_clock_button_expands_history_inside_the_same_window():
         assert window.history_open is False
         assert window.history_panel.winfo_manager() == ""
         assert window.target.winfo_manager() == "pack"
+        assert window.status_text() == idle_status           # 状态栏不残留历史提示
     finally:
         window.root.destroy()
 
