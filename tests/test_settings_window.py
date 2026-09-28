@@ -1,5 +1,7 @@
 """设置窗口的测试：热键录制、校验、保存。"""
 
+import time
+
 import pytest
 
 from mchanhua.config import Config, load_config, save_config
@@ -59,10 +61,14 @@ def test_find_conflicts_reports_invalid_hotkey():
 def _window(config: Config):
     from mchanhua.ui.settings_window import SettingsWindow
 
-    try:
-        return SettingsWindow(config)
-    except tk.TclError as exc:  # pragma: no cover - 无图形环境
-        pytest.skip(f"没有可用的图形环境：{exc}")
+    last: Exception | None = None
+    for _ in range(2):      # 这台机器上 Tk 初始化偶尔读不到 ttk 脚本，重试一次更稳
+        try:
+            return SettingsWindow(config)
+        except tk.TclError as exc:
+            last = exc
+            time.sleep(0.2)
+    pytest.skip(f"没有可用的图形环境：{last}")  # pragma: no cover
 
 
 def test_settings_window_collects_and_saves(workdir):

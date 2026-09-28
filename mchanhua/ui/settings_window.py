@@ -340,8 +340,8 @@ class SettingsWindow:
         page = self._make_page("界面外观")
         ui = self.config.ui
         numbers = (
-            ("窗口宽度", "width", ui.width),
-            ("窗口高度", "height", ui.height),
+            ("最小宽度", "width", ui.width),
+            ("最小高度", "height", ui.height),
             ("原文字号", "source_font_size", ui.source_font_size),
             ("译文字号", "result_font_size", ui.result_font_size),
             ("内边距", "padding", ui.padding),

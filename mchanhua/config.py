@@ -24,7 +24,7 @@ APP_DIR_NAME = "mchanhua"
 # 配置结构版本：写进 config.toml 的 [meta] version。
 # 旧版本的 exe 不知道这个字段，它保存配置时会把 [meta] 丢掉，
 # 所以"文件里没有 [meta]"就等于"这份配置来自旧版本"，需要迁移。
-CONFIG_VERSION = 3
+CONFIG_VERSION = 4
 
 # 旧版本用过的热键默认值。一旦发现配置里还是这些老值，就说明它来自旧版本，
 # 直接升级成新默认值；用户自己改成别的值的项一律原样保留。
@@ -37,6 +37,9 @@ LEGACY_HOTKEYS: dict[str, dict[str, str]] = {
 # 旧版本曾经把主窗口撑成整屏（半透明白底盖住桌面，什么都点不到），
 # 迁移时把尺寸收回到"小窗"的范围；用户在设置里自己定的尺寸（新版配置）不动。
 LEGACY_WINDOW_LIMITS = {"width": (320, 900), "height": (160, 700)}
+
+# v3 的默认高度偏大，会让小窗底下多出一块空白（用户反馈"窗口太高"）。
+OLD_DEFAULT_HEIGHT = 235
 
 
 def default_config_path() -> Path:
@@ -95,7 +98,8 @@ class TranslateConfig:
 @dataclass
 class UiConfig:
     width: int = 430
-    height: int = 235          # 紧凑：只放译文与原文
+    # 最小高度：内容更高就跟着变高，内容更矮不会留空白（v4 起生效）
+    height: int = 160
     font_family: str = "Microsoft YaHei UI"
     font_size: int = 13
     opacity: float = 0.90     # 灰色半透明背景（1.0 即完全不透明）
@@ -223,6 +227,9 @@ def migrate(config: Config, version: int | None) -> list[str]:
             if replacement is not None and replacement != current:
                 setattr(config.hotkeys, field_name, replacement)
                 changes.append(f"hotkeys.{field_name}: {current} → {replacement or '（留空）'}")
+        if int(config.ui.height) == OLD_DEFAULT_HEIGHT:
+            config.ui.height = UiConfig.height
+            changes.append(f"ui.height: {OLD_DEFAULT_HEIGHT} → {UiConfig.height}（现在高度按内容自适应）")
         for field_name, (low, high) in LEGACY_WINDOW_LIMITS.items():
             current = int(getattr(config.ui, field_name))
             clamped = min(high, max(low, current))

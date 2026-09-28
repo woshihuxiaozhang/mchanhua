@@ -217,6 +217,20 @@ def test_current_version_keeps_user_window_size():
     """新版配置里用户自己定的尺寸（哪怕很大）不该被动手脚。"""
 
     text = dumps(Config())
-    text = text.replace("width = 430", "width = 1200").replace("height = 235", "height = 800")
+    text = text.replace("width = 430", "width = 1200").replace("height = 160", "height = 800")
     assert loads(text).ui.width == 1200
     assert loads(text).ui.height == 800
+
+
+def test_legacy_default_height_is_migrated():
+    """v3 的默认高度 235 会在小窗底部留一块空白；迁移时降到新版默认值。"""
+
+    config = loads("[ui]\nheight = 235\nwidth = 430\n")
+    assert config.ui.height == 160
+    assert any("ui.height" in note for note in config.migrations)
+
+
+def test_user_chosen_height_is_kept_when_migrating():
+    config = loads("[ui]\nheight = 300\n")
+    assert config.ui.height == 300
+    assert all("ui.height" not in note for note in config.migrations)

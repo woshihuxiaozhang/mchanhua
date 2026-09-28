@@ -1,5 +1,7 @@
 """界面冒烟测试：确认 Tk 窗口能创建、更新、销毁（无图形环境时跳过）。"""
 
+import time
+
 import pytest
 
 from mchanhua.config import Config
@@ -12,10 +14,14 @@ tk = pytest.importorskip("tkinter")
 def _window():
     from mchanhua.ui.window import ResultWindow
 
-    try:
-        return ResultWindow(Config())
-    except tk.TclError as exc:  # pragma: no cover - 无显示环境
-        pytest.skip(f"没有可用的图形环境：{exc}")
+    last: Exception | None = None
+    for _ in range(2):      # 这台机器上 Tk 初始化偶尔读不到 ttk 脚本，重试一次更稳
+        try:
+            return ResultWindow(Config())
+        except tk.TclError as exc:
+            last = exc
+            time.sleep(0.2)
+    pytest.skip(f"没有可用的图形环境：{last}")  # pragma: no cover
 
 
 def test_window_renders_results_and_dispatches_queue_messages():
@@ -130,5 +136,39 @@ def test_window_stays_on_screen_and_buttons_fit():
         x, y = resolve_position(ui, (screen_w, screen_h), (width, height))
         assert x + width <= screen_w
         assert y + height <= screen_h
+    finally:
+        window.root.destroy()
+
+
+def test_window_height_hugs_content():
+    """回归测试：小窗底部不该留空白——高度按内容算（配置里的高度只当下限）。"""
+
+    window = _window()
+    try:
+        window.root.update_idletasks()
+        from customtkinter import ScalingTracker
+
+        scaling = float(ScalingTracker.get_window_dpi_scaling(window.root)) or 1.0
+        needed = int(window.root.winfo_reqheight() / scaling + 0.5)
+        width, height = window._place_window()
+        # 高度只允许比内容多出"配置下限"那一部分，且不能凭空多出一大截
+        assert height / scaling <= max(needed, window.config.ui.height) + 1
+        # 内容比配置下限高时，窗口就贴内容
+        assert window.card.cget("border_width") == 0        # 白卡片不再画外框
+    finally:
+        window.root.destroy()
+
+
+def test_collapsing_shrinks_window():
+    """折叠后窗口要跟着变矮（以前会留着原来那块空白）。"""
+
+    window = _window()
+    try:
+        window.root.update_idletasks()
+        before = window._place_window()[1]
+        window.toggle_collapsed()
+        window.root.update_idletasks()
+        after = window._place_window()[1]
+        assert after < before
     finally:
         window.root.destroy()

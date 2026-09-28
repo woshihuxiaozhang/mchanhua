@@ -115,9 +115,9 @@ class ResultWindow:
         self.f_meta = ctk.CTkFont(family=family, size=FONT_STEPS[0])
 
         self.card = ctk.CTkFrame(
-            self.root, corner_radius=12, fg_color="#FFFFFF", border_width=1, border_color="#E8E8E8"
+            self.root, corner_radius=12, fg_color="#FFFFFF", border_width=0
         )
-        self.card.pack(fill="both", expand=True, padx=6, pady=6)
+        self.card.pack(fill="both", expand=True)      # 白卡片直接铺满窗口：没有外框、没有留白
 
         self.collapsed = False
         self.compare_mode = False
@@ -131,13 +131,17 @@ class ResultWindow:
         self.set_status("待取词：把鼠标移到物品上按热键")
         self._build_buttons()
         self._place_window()
+        # customtkinter 的尺寸换算在窗口映射之后才生效，等它稳定再摆一次，
+        # 否则高度是按"还没定型的请求尺寸"算的，底下会多出一块空白。
+        self.root.after(250, self._place_window)
 
     def _place_window(self):
-        """按实际需要的尺寸摆好窗口：内容比配置宽时也不会顶出屏幕（按钮被切掉）。
+        """按内容的实际尺寸摆好窗口：不留多余空白，也不会顶出屏幕（按钮被切掉）。
 
         customtkinter 会把 geometry 里的宽高乘上 DPI 缩放，而坐标不加缩放，
         所以尺寸按"逻辑像素"（配置单位）给、位置按物理像素算，
         否则高分屏上窗口会顶出屏幕右边、最右边的按钮被切掉。
+        config.ui.width / height 现在只当"下限"：内容更小就贴内容，绝不留空。
         """
 
         ui = self.config.ui
@@ -146,8 +150,10 @@ class ResultWindow:
         screen_w = self.root.winfo_screenwidth()      # 物理像素
         screen_h = self.root.winfo_screenheight()
         # winfo_req* 是物理像素，先换回逻辑像素跟配置取大，再换回物理算位置
-        logical_w = max(int(ui.width), int(round(self.root.winfo_reqwidth() / scaling)))
-        logical_h = max(int(ui.height), int(round(self.root.winfo_reqheight() / scaling)))
+        needed_w = int(self.root.winfo_reqwidth() / scaling + 0.5)
+        needed_h = int(self.root.winfo_reqheight() / scaling + 0.5)
+        logical_w = max(int(ui.width), needed_w)
+        logical_h = max(needed_h, int(ui.height))     # 高度贴内容，配置值只当下限
         physical_w = int(round(logical_w * scaling))
         physical_h = int(round(logical_h * scaling))
         x, y = resolve_position(ui, (screen_w, screen_h), (physical_w, physical_h))
@@ -267,6 +273,7 @@ class ResultWindow:
             for bar in self.action_bars:
                 bar.pack(fill="x", padx=12, pady=(10, 12))
             self.set_status("已展开（译文在上，原文在下）")
+        self._place_window()          # 折叠后也要贴着内容收小，不留一大块空白
 
     def set_compare_mode(self, enabled: bool) -> None:
         if bool(enabled) == (not self.collapsed):
