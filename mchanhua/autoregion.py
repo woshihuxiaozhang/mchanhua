@@ -99,10 +99,15 @@ def capture_padded_and_filter(
         return None, image, result
 
     filtered = filter_lines_in_region(result, capture, region)
-    if not filtered.lines and getattr(result, "lines", None):
-        # 中心点都没命中（选区可能压在文字缝隙上），退回用整张抓图的结果
-        get_logger().info("选区内没有命中的行，改用整张抓图的结果")
-        return capture, image, result
+    if not filtered.lines:
+        # 选区里没有文字就是没有文字：**不要**退回整屏结果（那会把屏幕上的
+        # 其它文字当成选区内容翻译出来）。交给上层提示"没有识别到文字"。
+        get_logger().info(
+            "选区内没有命中任何一行（屏幕共识别 %d 行，都在选区 %s 之外）",
+            len(getattr(result, "lines", [])),
+            region.to_csv(),
+        )
+        return capture, image, filtered
     get_logger().info(
         "抓图区域 %s（模式 %s），识别 %d 行，其中 %d 行落在选区 %s 内",
         capture.to_csv(),

@@ -92,6 +92,26 @@ def test_keeps_whole_line_when_region_is_far_too_small_screen_mode():
     assert [line.text for line in result.lines] == ["You shouldn't be here."]
 
 
+def test_no_fallback_when_region_has_no_text():
+    """选区里没有文字时不再退回整屏结果（以前会把屏幕上的其它文字翻译出来）。"""
+
+    region = Region(300, 300, 200, 40)
+
+    def recognize(image):
+        # 文字都在选区外（整屏坐标）
+        return _result([OcrLine("far away", Region(1500, 100, 400, 30))])
+
+    capture, _image, result = capture_padded_and_filter(
+        region,
+        MONITOR,
+        grab=lambda target: Image.new("RGB", (target.width, target.height)),
+        recognize=recognize,
+    )
+
+    assert capture == MONITOR
+    assert result.lines == []
+
+
 def test_padded_mode_still_works_when_configured():
     """配置成 padded 时只抓选区外扩的一圈（快，但横向切掉的长句补不回来）。"""
 
@@ -191,6 +211,51 @@ def test_worker_respects_padded_capture_mode(workdir):
     wait_for(app, "result")
 
     assert app.grabber.requests[-1].to_csv() == "220,320,660,460"
+
+
+class _EmptyRegionOcr:
+    """选区里没有文字：整屏能识别到行，但那些行都在选区外。"""
+
+    name = "fake-ocr"
+
+    def recognize(self, image):
+        return _result([OcrLine("far away", Region(1500, 100, 400, 30))])
+
+
+def test_worker_shows_notice_when_region_has_no_text(workdir):
+    """选区里没文字：提示"选区内没有识别到文字"，不翻译、不出结果。"""
+
+    app = _app(workdir, _EmptyRegionOcr())
+    app.translator = DecodingTranslator()
+    app.config.regions.set_custom_region(Region(300, 400, 200, 40))
+
+    app.perform_translate()
+    messages = wait_for(app, "notice")
+
+    notice = next(message[1] for message in messages if message[0] == "notice")
+    assert "没有识别到文字" in notice
+    assert not [message for message in messages if message[0] == "result"]
+    assert app.queue.empty()
+
+
+class _BlindOcr:
+    """整张图都没识别到文字。"""
+
+    name = "fake-ocr"
+
+    def recognize(self, image):  # noqa: ARG002 - 接口要求
+        return _result([])
+
+
+def test_worker_notice_for_fullscreen_without_text(workdir):
+    app = _app(workdir, _BlindOcr())
+    app.translator = DecodingTranslator()
+    app.perform_translate_fullscreen()
+
+    messages = wait_for(app, "notice")
+
+    notice = next(message[1] for message in messages if message[0] == "notice")
+    assert "没有识别到文字" in notice
 
 
 # ---- 调试落盘 ----

@@ -231,3 +231,54 @@ def test_text_area_grows_with_result_and_shrinks_on_clear():
         assert window._place_window()[1] <= idle + 1
     finally:
         window.root.destroy()
+
+
+def test_notice_clears_previous_result_and_shows_hint():
+    """提示消息（例如"选区内没有识别到文字"）要清掉上次的译文，别让人误会。"""
+
+    window = _window()
+    try:
+        window.show_result(
+            PipelineResult(source_lines=["Steel Ingot"], output_lines=["钢锭"])
+        )
+        window.root.update_idletasks()
+        assert window.target.get("1.0", "end").strip() == "钢锭"
+
+        window.show_notice("选区内没有识别到文字")
+        window.root.update_idletasks()
+
+        assert window.target.get("1.0", "end").strip() == ""
+        assert window.source.get("1.0", "end").strip() == ""
+        assert window.status_text() == "选区内没有识别到文字"
+    finally:
+        window.root.destroy()
+
+
+def test_poll_arms_next_tick_before_doing_the_work():
+    """回归：弹框选遮罩时 drain 会阻塞，心跳必须在此之前就排好下一次。"""
+
+    import queue as queue_module
+
+    from mchanhua.ui.window import ResultWindow
+
+    order: list[str] = []
+
+    class _FakeRoot:
+        def after(self, _ms, _fn) -> None:
+            order.append("after")
+
+    class _FakeSink:
+        root = _FakeRoot()
+
+        def on_poll(self) -> None:
+            order.append("beat")
+
+        def drain(self, _queue, _max_messages=50) -> int:
+            order.append("drain")
+            return 0
+
+        poll = ResultWindow.poll
+
+    _FakeSink().poll(queue_module.Queue(), 60)
+
+    assert order == ["after", "beat", "drain"]

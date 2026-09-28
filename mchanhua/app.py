@@ -305,6 +305,13 @@ class Application:
         )
         return capture, image, ocr_result
 
+    def _no_text_message(self, region: Region | None) -> str:
+        """选区/整屏没识别到文字时的提示语。"""
+
+        if region is None:
+            return "没有识别到文字：换个画面或把字调大一点再试"
+        return f"选区内没有识别到文字（{region.to_csv()}），把框拉大一点圈住文字再试"
+
     def _worker(self, region: Region | None, image=None, max_lines: int | None = None) -> None:
         try:
             translator = self._ensure_translator()
@@ -314,6 +321,11 @@ class Application:
                 else:
                     capture = None
                     ocr_result = self.ocr.recognize(image)
+                if not ocr_result.lines:
+                    # 选区内没有文字时以前会退回整屏结果（等于把屏幕上别的文字翻出来），
+                    # 现在明确提示，不翻译、也不覆盖上次的译文。
+                    self.queue.put(("notice", self._no_text_message(region)))
+                    return
                 result = run_from_ocr(
                     ocr_result,
                     translator,

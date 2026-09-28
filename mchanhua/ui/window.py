@@ -72,6 +72,12 @@ def drain_queue(message_queue: "queue.Queue[tuple]", sink, max_messages: int = 5
             sink.show_source(message[1], message[2])
         elif kind == "result":
             sink.show_result(message[1])
+        elif kind == "notice":
+            handler = getattr(sink, "show_notice", None)
+            if handler is not None:
+                handler(message[1])
+            else:  # pragma: no cover - 老界面/测试替身没有这个方法
+                sink.set_status(message[1])
         elif kind == "call":
             message[1]()
     return handled
@@ -319,6 +325,12 @@ class ResultWindow:
         self.set_status("待取词：把鼠标移到物品上按热键")
         self._fit_text_areas(1, 1)        # 清空后收回一行高，窗口跟着变矮
 
+    def show_notice(self, text: str) -> None:
+        """只显示一条提示（例如"选区内没有识别到文字"），并清掉上一次的结果。"""
+
+        self._clear()
+        self.set_status(text)
+
     # ---- 显示 ----
     def set_status(self, text: str) -> None:
         self.status.configure(text=text)
@@ -374,9 +386,12 @@ class ResultWindow:
         return drain_queue(message_queue, self, max_messages)
 
     def poll(self, message_queue: "queue.Queue[tuple]", interval_ms: int = 60) -> None:
+        # 先把下一次心跳排进队列再干活：drain 里可能弹框选遮罩（wait_window 会阻塞
+        # 这个回调），要是把 after 放在最后，遮罩开着的几秒中心跳就断了，
+        # 看门狗会误报"界面卡死"。
+        self.root.after(interval_ms, lambda: self.poll(message_queue, interval_ms))
         self.on_poll()
         self.drain(message_queue)
-        self.root.after(interval_ms, lambda: self.poll(message_queue, interval_ms))
 
     def run(self) -> None:
         self.root.mainloop()
