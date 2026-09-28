@@ -247,6 +247,19 @@ def cmd_run(args: argparse.Namespace) -> int:
         get_logger().warning("检测到已有实例在运行，本次启动退出")
         return 1
     config = load_config(args.config)
+    # 启动自检：把"实际加载到的配置"写进日志，便于排查"改了配置却没生效"
+    get_logger().info(
+        "启动自检：配置=%s | 热键 translate=%r clipboard=%r fullscreen=%r quit=%r"
+        " | 服务=%s | key=%s | 主题背景=%s",
+        resolve_config_path(args.config),
+        config.hotkeys.translate,
+        config.hotkeys.translate_clipboard,
+        config.hotkeys.translate_fullscreen,
+        config.hotkeys.quit,
+        config.translate.provider,
+        "已设置" if config.resolved_api_key else "未设置",
+        config.ui.background,
+    )
     if args.region:
         config.regions.fixed["tooltip"] = args.region
     app = Application(

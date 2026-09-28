@@ -120,6 +120,22 @@ class SettingsWindow:
         ctk.CTkLabel(row, text=path_hint, font=self.f_small, text_color=LABEL).pack(
             side="left", padx=(10, 0)
         )
+        ctk.CTkLabel(row, text=f"构建 {self._build_stamp()}", font=self.f_small,
+                     text_color=LABEL).pack(side="right", padx=(0, 8))
+
+    @staticmethod
+    def _build_stamp() -> str:
+        """显示程序自身的构建时间：用来区分"你启动的是不是最新那一版"。"""
+
+        import sys
+        import time
+        from pathlib import Path
+
+        target = Path(sys.executable) if getattr(sys, "frozen", False) else Path(__file__)
+        try:
+            return time.strftime("%m-%d %H:%M", time.localtime(target.stat().st_mtime))
+        except OSError:  # pragma: no cover
+            return "?"
         ctk.CTkButton(row, text="✕", width=28, height=24, corner_radius=6, fg_color="transparent",
                       hover_color=FIELD, text_color=LABEL, font=self.f_small,
                       command=self.root.destroy).pack(side="right")
