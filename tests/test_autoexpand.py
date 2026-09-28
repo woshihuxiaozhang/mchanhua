@@ -235,7 +235,6 @@ def test_worker_shows_notice_when_region_has_no_text(workdir):
     notice = next(message[1] for message in messages if message[0] == "notice")
     assert "没有识别到文字" in notice
     assert not [message for message in messages if message[0] == "result"]
-    assert app.queue.empty()
 
 
 class _BlindOcr:

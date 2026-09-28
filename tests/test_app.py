@@ -167,3 +167,50 @@ def test_empty_selection_does_not_go_into_history():
     wait_for(app, "notice")
 
     assert app.history.all() == []
+
+
+# ---- 抓屏时先藏起自己的窗口 ----
+
+
+def test_capture_hides_window_then_shows_it_again():
+    """全屏翻译前窗口必须先藏起来，抓完再放回来（否则会把自己界面也翻译进去）。"""
+
+    window = FakeWindow()
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=FakeOcr(),
+        window=window,
+    )
+    app.translator = DecodingTranslator()
+
+    app.perform_translate_fullscreen()
+    messages = wait_for(app, "call")      # 等"把窗口放回来"的回调入队
+    calls = [message[1] for message in messages if message[0] == "call"]
+    for call in calls:                    # 界面没跑主循环，手动把排队的回调执行掉
+        call()
+
+    assert window.root.withdrawn >= 1     # 抓图时藏起来了
+    assert window.root.deiconified >= 1   # 抓完放回来了
+    assert app._hidden_for_capture is False
+
+
+def test_selection_capture_also_hides_window():
+    window = FakeWindow()
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=FakeOcr(),
+        window=window,
+    )
+    app.translator = DecodingTranslator()
+
+    app.perform_translate(Region(100, 200, 400, 300))
+    messages = wait_for(app, "call")
+    for call in [message[1] for message in messages if message[0] == "call"]:
+        call()
+
+    assert window.root.withdrawn >= 1
+    assert window.root.deiconified >= 1

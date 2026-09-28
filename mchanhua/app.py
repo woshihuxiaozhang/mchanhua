@@ -92,6 +92,7 @@ class Application:
         self.beat_count = 0
         self._translate_lock = threading.Lock()
         self._pending_jobs: list[tuple[str, Region | None]] = []
+        self._hidden_for_capture = False
         logger.info(
             "初始化完成：采集后端 %s，OCR 后端 %s，标定区域 %s，跟随光标区域 %s",
             self.grabber.name,
@@ -187,11 +188,7 @@ class Application:
             return
         target = region if region is not None else self._current_region()
         self.window.set_status("正在采集并识别…")
-        try:
-            threading.Thread(target=self._worker, args=(target, None), daemon=True).start()
-        except Exception:
-            self._translate_lock.release()
-            raise
+        self._capture_after_hiding(lambda: self._start_worker(target, None))
 
     def perform_translate_fullscreen(self) -> None:
         """全屏翻译：整屏识别后翻译，行数超过上限时只翻前若干行。"""
@@ -201,15 +198,61 @@ class Application:
             return
         monitor = self.grabber.primary_monitor()
         self.window.set_status(f"正在全屏识别（{monitor.width}x{monitor.height}）…")
+        self._capture_after_hiding(
+            lambda: self._start_worker(None, None, FULLSCREEN_MAX_LINES)
+        )
+
+    # ---- 抓屏前把自己藏起来 ----
+    def _capture_after_hiding(self, start) -> None:
+        """先把自己的窗口从屏幕上拿掉，停一拍再开始抓图。
+
+        否则全屏翻译会把界面本身也 OCR 进去（"翻译选区/设置"这些字全被翻译）。
+        隐藏/恢复都必须发生在主线程（Tk 只能在主线程碰）。
+        """
+
+        root = getattr(self.window, "root", None)
+        delay = 0
+        if root is not None and hasattr(root, "after"):
+            try:
+                root.withdraw()
+                self._hidden_for_capture = True
+                root.update_idletasks()
+                delay = 120          # 留一拍让窗口真的从画面上消失
+            except Exception:  # pragma: no cover - 隐藏失败也要继续抓图
+                get_logger().warning("抓图前隐藏窗口失败", exc_info=True)
+        try:
+            if delay and hasattr(root, "after"):
+                root.after(delay, start)
+            else:
+                start()
+        except Exception:
+            self._translate_lock.release()
+            self._show_after_capture()
+            raise
+
+    def _start_worker(self, region: Region | None, image, max_lines: int | None = None) -> None:
         try:
             threading.Thread(
-                target=self._worker,
-                args=(None, None, FULLSCREEN_MAX_LINES),
-                daemon=True,
+                target=self._worker, args=(region, image, max_lines), daemon=True
             ).start()
         except Exception:
             self._translate_lock.release()
+            self._show_after_capture()
             raise
+
+    def _show_after_capture(self) -> None:
+        """把抓图时藏起来的窗口放回来（主线程调用）。"""
+
+        if not self._hidden_for_capture:
+            return
+        self._hidden_for_capture = False
+        root = getattr(self.window, "root", None)
+        if root is None or not hasattr(root, "deiconify"):
+            return
+        try:
+            root.deiconify()
+        except Exception:  # pragma: no cover - 窗口已销毁
+            pass
 
     def perform_translate_clipboard(self) -> None:
         """翻译剪贴板里的图片（Win+Shift+S 截图后按热键即可）。"""
@@ -395,6 +438,9 @@ class Application:
             if self._pending_jobs:
                 # 交回主线程执行，避免在工作线程里碰 Tk
                 self.queue.put(("call", self._drain_pending))
+            else:
+                # 抓图时藏起来的窗口，这会儿放回来
+                self.queue.put(("call", self._show_after_capture))
 
     # ---- 繁忙时的排队 ----
     def _queue_pending(self, kind: str, region: Region | None = None) -> None:
@@ -407,6 +453,7 @@ class Application:
     def _drain_pending(self) -> None:
         if not self._pending_jobs:
             return
+        self._show_after_capture()          # 排队的是剪贴板/文件时窗口得先回来
         kind, region = self._pending_jobs.pop(0)
         get_logger().info("开始执行排队的请求：%s", kind)
         if kind == "region":

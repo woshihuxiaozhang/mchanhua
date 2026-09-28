@@ -78,13 +78,24 @@ class FakeTkRoot:
 
     def __init__(self) -> None:
         self.withdrawn = 0
+        self.deiconified = 0
         self.destroyed = False
 
     def withdraw(self) -> None:
         self.withdrawn += 1
 
     def deiconify(self) -> None:
+        self.deiconified += 1
+
+    def update_idletasks(self) -> None:
         pass
+
+    def after(self, _ms: int, func=None, *args):
+        """测试里立即执行，等价于"稍后就开始抓图"。"""
+
+        if func is not None:
+            func(*args)
+        return "after-id"
 
     def destroy(self) -> None:
         self.destroyed = True
