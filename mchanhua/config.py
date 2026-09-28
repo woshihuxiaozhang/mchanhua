@@ -107,6 +107,8 @@ class UiConfig:
     position: str = "right"
     # ---- 主题（改这里就能换界面风格，不用动代码）----
     background: str = "#FFFFFF"    # 画布：纯白
+    # 自定义背景图（留空 = 用上面的纯色）。图片会被等比裁切铺满窗口
+    background_image: str = ""
     panel: str = "#F7F6F3"        # 面板：暖灰（配合半透明即"灰色透明"）
     border: str = "#EAEAEA"       # 结构线：极浅灰
     text: str = "#111111"         # 正文：off-black，不用纯黑

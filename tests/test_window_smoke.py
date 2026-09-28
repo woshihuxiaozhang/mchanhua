@@ -190,7 +190,7 @@ def test_card_has_square_corners_and_no_extra_buttons():
     try:
         window.root.update_idletasks()
         assert int(window.card.cget("corner_radius")) == 0
-        title_row = window.card.winfo_children()[0]
+        title_row = window.title_row
         texts = [child.cget("text") for child in title_row.winfo_children()]
         assert texts == ["文", "取词翻译", window._provider_label(), "🕘"]
         assert "✕" not in texts and "—" not in texts
@@ -405,6 +405,65 @@ def test_place_window_keeps_position_after_user_moved_it():
         window.root.update_idletasks()
 
         assert (window.root.winfo_x(), window.root.winfo_y()) == moved_to
+    finally:
+        window.root.destroy()
+
+
+# ---- 自定义背景图 / 透明度 ----
+
+
+def test_opacity_is_applied_and_can_go_back_to_opaque():
+    window = _window()
+    try:
+        window.set_opacity(0.6)
+        assert abs(float(window.root.attributes("-alpha")) - 0.6) < 0.01
+        assert window.config.ui.opacity == 0.6
+
+        window.set_opacity(1.0)                  # 调回 1.0 必须真的恢复不透明
+        assert float(window.root.attributes("-alpha")) == 1.0
+    finally:
+        window.root.destroy()
+
+
+def test_background_image_covers_window(workdir):
+    from PIL import Image
+
+    path = workdir / "bg.png"
+    Image.new("RGB", (800, 300), (30, 60, 90)).save(path)
+
+    window = _window()
+    try:
+        window.root.geometry("430x240")
+        window.root.update()
+        window.set_background_image(str(path))
+        window._render_background(force=True)
+        window.root.update_idletasks()
+
+        assert window._background_active is True
+        assert window.background_label.winfo_manager() == "place"
+        # 图片按窗口尺寸裁好，背景标签贴在最底层
+        assert window._background_photo.width() == window.card.winfo_width()
+
+        window.set_background_image("")           # 清掉之后回到纯色
+        window.root.update_idletasks()
+        assert window._background_active is False
+        assert window.background_label.winfo_manager() == ""
+    finally:
+        window.root.destroy()
+
+
+def test_broken_background_falls_back_to_color(workdir):
+    broken = workdir / "broken.png"
+    broken.write_text("not an image", encoding="utf-8")
+
+    window = _window()
+    try:
+        window.root.geometry("430x240")
+        window.root.update()
+        window.set_background_image(str(broken))
+        window._render_background(force=True)
+
+        assert window._background_active is False      # 坏图不会把窗口搞崩
     finally:
         window.root.destroy()
 

@@ -17,7 +17,9 @@ from customtkinter import ScalingTracker
 
 from mchanhua.config import Config
 from mchanhua.history import HistoryEntry, render_entries
+from mchanhua.logging_setup import get_logger
 from mchanhua.pipeline import PipelineResult
+from mchanhua.ui.background import load_background
 from mchanhua.ui.titlebar import use_light_title_bar
 
 FONT_STEPS = (11, 13, 15, 19)
@@ -142,6 +144,12 @@ class ResultWindow:
         )
         self.card.pack(fill="both", expand=True)      # 白卡片直接铺满窗口：没有外框、没有留白
 
+        # 背景图（可选）：最先创建 + lower()，压在所有内容之下
+        self._background_photo = None
+        self._background_size = (0, 0)
+        self.background_label = tk.Label(self.card, bd=0, highlightthickness=0,
+                                         bg=self.config.ui.background or "#FFFFFF")
+
         self.collapsed = False
         self.compare_mode = False
         self.history_open = False
@@ -162,6 +170,7 @@ class ResultWindow:
         self._build_history_panel()
         self._fit_text_areas(1, 1)        # 空闲时只留一行高，不留一大片空白
         self._place_window()
+        self._render_background()
         # customtkinter 的尺寸换算在窗口映射之后才生效，等它稳定再摆一次，
         # 否则高度是按"还没定型的请求尺寸"算的，底下会多出一块空白。
         self.root.after(250, self._place_window)
@@ -189,6 +198,7 @@ class ResultWindow:
         screen_h = self.root.winfo_screenheight()
         x, y = resolve_position(ui, (screen_w, screen_h), (physical_w, physical_h))
         self.root.geometry(f"{logical_w}x{logical_h}+{x}+{y}")
+        self._render_background()
         return physical_w, physical_h
 
     def _scaling(self) -> float:
@@ -228,11 +238,13 @@ class ResultWindow:
         x = max(0, min(x, screen_w - physical_w))
         y = max(0, min(y, screen_h - physical_h))
         self.root.geometry(f"{logical_w}x{logical_h}+{x}+{y}")
+        self._render_background()
         return physical_w, physical_h
 
     # ---- 顶部标题行 ----
     def _build_title(self) -> None:
         row = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
+        self.title_row = row
         row.pack(fill="x", padx=16, pady=(10, 0))
         ctk.CTkLabel(row, text="文", width=20, height=20, corner_radius=4,
                      fg_color="#E8F0FE", text_color="#1A73E8", font=self.f_meta).pack(side="left")
@@ -417,6 +429,57 @@ class ResultWindow:
         return preset.label.split("（")[0] if preset else self.config.translate.provider
 
     # ---- 窗口行为 ----
+    def set_opacity(self, value: float) -> None:
+        """立即调整窗口透明度（设置里拖滑块时实时预览）。"""
+
+        try:
+            opacity = max(0.3, min(1.0, float(value)))
+        except (TypeError, ValueError):
+            return
+        self.config.ui.opacity = opacity
+        self._apply_alpha()
+
+    def set_background_image(self, path: str) -> None:
+        """立即换背景图（空字符串 = 回到纯色背景）。"""
+
+        self.config.ui.background_image = str(path or "").strip()
+        self._render_background(force=True)
+        return self._background_active
+
+    def _render_background(self, force: bool = False, attempt: int = 0) -> None:
+        """按当前窗口尺寸把背景图铺上去（会等比裁切，不变形）。"""
+
+        size = (max(1, self.card.winfo_width()), max(1, self.card.winfo_height()))
+        if size[0] < 10 or size[1] < 10:
+            # 窗口还没布局好，等一拍再来（重试几次就放弃，避免空转）
+            if attempt < 5:
+                self.root.after(200, lambda: self._render_background(attempt=attempt + 1))
+            return
+        path = (self.config.ui.background_image or "").strip()
+        if not path:
+            self._background_photo = None
+            self.background_label.place_forget()
+            return
+        if not force and size == self._background_size and self._background_photo is not None:
+            return                                # 尺寸没变就不用重新裁
+        image = load_background(path, size)
+        if image is None:
+            get_logger().warning("背景图不可用（已退回纯色）：%s", path)
+            self._background_photo = None
+            self.background_label.place_forget()
+            return
+        from PIL import ImageTk
+
+        self._background_photo = ImageTk.PhotoImage(image)
+        self._background_size = size
+        self.background_label.configure(image=self._background_photo)
+        self.background_label.place(x=0, y=0, relwidth=1, relheight=1)
+        self.background_label.lower()             # 永远垫在最底下
+
+    @property
+    def _background_active(self) -> bool:
+        return self._background_photo is not None
+
     def _apply_light_title_bar(self) -> None:
         """外框（标题栏）保持白色：系统深色主题下默认是黑的，这里强制浅色。"""
 
@@ -426,12 +489,10 @@ class ResultWindow:
         self.root.after(500, lambda: use_light_title_bar(self.root))
 
     def _apply_alpha(self) -> None:
-        opacity = float(self.config.ui.opacity)
-        if opacity >= 0.999:
-            return
         try:
-            self.root.attributes("-alpha", opacity)
-        except tk.TclError:  # pragma: no cover
+            # 总是写一遍：透明度调回 1.0 时也要真的恢复不透明
+            self.root.attributes("-alpha", max(0.3, min(1.0, float(self.config.ui.opacity))))
+        except (tk.TclError, TypeError, ValueError):  # pragma: no cover
             pass
 
     def _start_drag(self, event) -> None:

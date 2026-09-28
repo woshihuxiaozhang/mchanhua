@@ -15,11 +15,17 @@ def _picker(initial: str = "", parent=None):
     owns = parent is None
     root = parent or tk_module.Tk()
     root.withdraw()
-    try:
-        picker = HotkeyPicker(root, initial=initial)
-    except tk.TclError as exc:  # pragma: no cover - 无图形环境
+    last: Exception | None = None
+    for _ in range(2):     # 这台机器上 Tk 初始化偶尔读不到 ttk 脚本，重试一次更稳
+        try:
+            picker = HotkeyPicker(root, initial=initial)
+            break
+        except tk.TclError as exc:
+            last = exc
+            time.sleep(0.2)
+    else:  # pragma: no cover - 无图形环境
         root.destroy()
-        pytest.skip(f"没有可用的图形环境：{exc}")
+        pytest.skip(f"没有可用的图形环境：{last}")
     _settle(picker)
     return picker, root, owns
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import tkinter as tk
 from tkinter import colorchooser, messagebox
+from tkinter import filedialog
 from typing import Callable
 
 import customtkinter as ctk
@@ -23,6 +24,7 @@ from mchanhua.translate.connection import test_connection
 from mchanhua.translate.providers import PRESETS, guess_provider
 from mchanhua.ui.hotkey_capture import ComboTracker
 from mchanhua.ui.hotkey_picker import pick_hotkey
+from mchanhua.ui.background import IMAGE_PATTERNS, load_background
 from mchanhua.ui.theme import DEFAULT_LIGHT
 from mchanhua.ui.titlebar import use_light_title_bar
 from mchanhua.ui.window import _is_dark
@@ -55,6 +57,8 @@ class SettingsWindow:
         resume_hotkeys: Callable[[], None] | None = None,
         history: TranslationHistory | None = None,
         on_history_cleared: Callable[[], None] | None = None,
+        preview_opacity: Callable[[float], None] | None = None,
+        preview_background: Callable[[str], None] | None = None,
     ) -> None:
         self.config = config
         self.on_saved = on_saved
@@ -63,10 +67,14 @@ class SettingsWindow:
         self.resume_hotkeys = resume_hotkeys
         self.history = history
         self.on_history_cleared = on_history_cleared
+        # 拖滑块 / 选图时给主窗口做即时预览
+        self.preview_opacity = preview_opacity
+        self.preview_background = preview_background
+        self._background_path = str(config.ui.background_image or "")
         ctk.set_appearance_mode("dark" if _is_dark(config.ui.background) else "light")
         self.root = ctk.CTkToplevel(parent) if parent is not None else ctk.CTk()
         self.root.title("mchanhua 设置")
-        self.root.geometry("820x540")     # 热键页多了一列「选择按键」按钮，留够宽度
+        self.root.geometry("820x540")     # 先给个初始尺寸，随后按当前页内容自适应高度
         self.root.configure(fg_color="#F7F7F7")
         use_light_title_bar(self.root)    # 外框保持白色，不跟随系统深色主题
         self.root.after(300, lambda: use_light_title_bar(self.root))
@@ -93,6 +101,8 @@ class SettingsWindow:
         self._build_history()
         self._build_footer()
         self._show_page("翻译服务")
+        # 页面高度按内容自适应：能一屏放完就不用滚（滚动容器只当兜底）
+        self.root.after(250, self._fit_window_height)
         if parent is not None:
             self.root.transient(parent)
             self.root.grab_set()
@@ -179,10 +189,50 @@ class SettingsWindow:
         page = self._pages.get(name)
         if page is not None:
             page.pack(fill="both", expand=True)
+        self._current_page = name
         for tab, button in self._tab_buttons.items():
             active = tab == name
             button.configure(fg_color=FIELD if active else "transparent",
                              text_color=TEXT if active else LABEL)
+        self.root.after(30, self._fit_window_height)
+        # 切页之后自定义控件偶尔会漏画（输入框看着是空的），补一次重绘
+        self.root.after(90, self._redraw_widgets)
+
+    def _fit_window_height(self) -> None:
+        """按当前页内容把窗口调到刚好放得下（最高不超过屏幕的 90%）。"""
+
+        try:
+            from customtkinter import ScalingTracker
+
+            self.root.update_idletasks()
+            body = self._page_bodies.get(getattr(self, "_current_page", ""))
+            if body is None or not self.pages_area.winfo_height():
+                return
+            # geometry 里的数字是"逻辑像素"，winfo_* 给的是物理像素，先换算
+            scaling = float(ScalingTracker.get_window_dpi_scaling(self.root)) or 1.0
+            overhead = int((self.card.winfo_height() - self.pages_area.winfo_height()) / scaling)
+            needed = int(body.winfo_reqheight() / scaling + 0.5) + overhead + 12
+            screen_h = int(self.root.winfo_screenheight() / scaling)
+            width = 820
+            target = max(520, min(int(screen_h * 0.9), needed))
+            self.root.geometry(f"{width}x{target}")
+            self.root.after(30, self._redraw_widgets)
+        except tk.TclError:  # pragma: no cover - 窗口已销毁
+            pass
+
+    def _redraw_widgets(self) -> None:
+        """滚动之后把自定义控件的画布重画一遍（customtkinter 在滚动容器里偶尔漏画）。"""
+
+        stack = list(self.card.winfo_children())
+        while stack:
+            widget = stack.pop()
+            stack.extend(widget.winfo_children())
+            draw = getattr(widget, "_draw", None)
+            if callable(draw):
+                try:
+                    draw()
+                except Exception:  # pragma: no cover - 个别控件没有 _draw
+                    pass
 
     def _make_page(self, name: str) -> ctk.CTkFrame:
         """一页 = 外层容器（用来显示/隐藏）+ 里面可滚动的正文。
@@ -198,6 +248,14 @@ class SettingsWindow:
         )
         body._parent_frame.pack(fill="both", expand=True)   # 真正要显示的是外层容器
         body.columnconfigure(1, weight=1)
+        # 滚动过之后补一次重绘，免得输入框里的字被"漏画"
+        body.bind("<MouseWheel>", lambda _event: self.root.after(30, self._redraw_widgets), add="+")
+        body._parent_canvas.bind(
+            "<MouseWheel>", lambda _event: self.root.after(30, self._redraw_widgets), add="+"
+        )
+        body._scrollbar.bind(
+            "<B1-Motion>", lambda _event: self.root.after(30, self._redraw_widgets), add="+"
+        )
         self._pages[name] = holder
         self._page_bodies[name] = body
         return body
@@ -368,7 +426,6 @@ class SettingsWindow:
             ("原文字号", "source_font_size", ui.source_font_size),
             ("译文字号", "result_font_size", ui.result_font_size),
             ("内边距", "padding", ui.padding),
-            ("透明度", "opacity", ui.opacity),
         )
         for index, (label, key, value) in enumerate(numbers):
             self._row(page, index, label, f"ui.{key}", str(value))
@@ -385,9 +442,81 @@ class SettingsWindow:
             self._button(page, "选择…", lambda k=key: self._pick_color(k), width=64).grid(
                 row=row, column=2, sticky="w", padx=(0, 8)
             )
-        self._button(page, "恢复默认主题", self.restore_default_theme).grid(
-            row=offset + len(colors), column=1, sticky="w", pady=(12, 0), padx=(0, 8)
+
+        # ---- 透明度：拖滑块即时预览 ----
+        opacity_row = offset + len(colors)
+        self._vars.setdefault("ui.opacity", tk.StringVar(value=str(ui.opacity)))
+        ctk.CTkLabel(page, text="界面透明度", font=self.f_label, text_color=LABEL,
+                     width=90, anchor="w").grid(row=opacity_row, column=0, sticky="w",
+                                                padx=(8, 12), pady=9)
+        self._opacity_value = ctk.CTkLabel(page, text=f"{float(ui.opacity):.2f}",
+                                           font=self.f_label, text_color=TEXT, width=44)
+        self._opacity_value.grid(row=opacity_row, column=2, sticky="w", padx=(0, 8))
+        self._opacity_slider = ctk.CTkSlider(
+            page, from_=0.3, to=1.0, number_of_steps=70, height=18,
+            fg_color="#E3E6EB", progress_color=BLUE, button_color=BLUE,
+            button_hover_color="#1668D8", command=self._on_opacity_slide,
         )
+        self._opacity_slider.set(float(ui.opacity))
+        self._opacity_slider.grid(row=opacity_row, column=1, sticky="we", pady=9, padx=(0, 8))
+
+        # ---- 背景图：选一张图片铺满窗口 ----
+        background_row = opacity_row + 1
+        ctk.CTkLabel(page, text="背景图片", font=self.f_label, text_color=LABEL,
+                     width=90, anchor="w").grid(row=background_row, column=0, sticky="w",
+                                                padx=(8, 12), pady=9)
+        self._background_var = tk.StringVar(value=self._background_path or "（未设置，用纯色背景）")
+        self._background_entry = ctk.CTkEntry(
+            page, textvariable=self._background_var, height=34, corner_radius=6,
+            font=self.f_label, fg_color=FIELD, text_color=TEXT,
+            border_width=1, border_color=LINE,
+        )
+        self._background_entry.configure(state="readonly")
+        self._background_entry.grid(row=background_row, column=1, sticky="we", pady=9, padx=(0, 8))
+        background_actions = ctk.CTkFrame(page, corner_radius=0, fg_color="transparent")
+        background_actions.grid(row=background_row, column=2, sticky="w", padx=(0, 8))
+        self._button(background_actions, "选择图片…", self.pick_background).pack(side="left")
+        self._button(background_actions, "清除", self.clear_background, width=56).pack(
+            side="left", padx=6
+        )
+
+        self._button(page, "恢复默认主题", self.restore_default_theme).grid(
+            row=background_row + 1, column=1, sticky="w", pady=(12, 0), padx=(0, 8)
+        )
+
+    # ---- 透明度 / 背景图 ----
+    def _on_opacity_slide(self, value: float) -> None:
+        self._vars["ui.opacity"].set(f"{float(value):.2f}")
+        self._opacity_value.configure(text=f"{float(value):.2f}")
+        if self.preview_opacity is not None:
+            self.preview_opacity(float(value))
+
+    def pick_background(self) -> None:
+        """选一张图片当窗口背景（等比裁切铺满，不拉伸变形）。"""
+
+        path = filedialog.askopenfilename(
+            title="选择背景图片",
+            filetypes=[("图片", IMAGE_PATTERNS), ("所有文件", "*.*")],
+        )
+        if not path:
+            return
+        if load_background(path, (64, 64)) is None:
+            messagebox.showerror("图片打不开", f"这个文件不是能用的图片：\n{path}")
+            return
+        self._set_background(path, preview=True)
+        get_logger().info("已选择背景图：%s", path)
+
+    def clear_background(self) -> None:
+        if not self._background_path:
+            return
+        self._set_background("", preview=True)
+        get_logger().info("已清除背景图")
+
+    def _set_background(self, path: str, preview: bool = False) -> None:
+        self._background_path = str(path or "")
+        self._background_var.set(self._background_path or "（未设置，用纯色背景）")
+        if preview and self.preview_background is not None:
+            self.preview_background(self._background_path)
 
     def _pick_color(self, key: str) -> None:
         chosen = colorchooser.askcolor(color=str(self._vars[f"ui.{key}"].get()) or "#FFFFFF")[1]
@@ -488,6 +617,7 @@ class SettingsWindow:
             value = str(self._vars[f"ui.{key}"].get()).strip()
             if value:
                 setattr(config.ui, key, value)
+        config.ui.background_image = self._background_path
         return config
 
     def validate(self) -> list[str]:
@@ -549,12 +679,18 @@ def open_settings(
     resume_hotkeys: Callable[[], None] | None = None,
     history: TranslationHistory | None = None,
     on_history_cleared: Callable[[], None] | None = None,
+    preview_opacity: Callable[[float], None] | None = None,
+    preview_background: Callable[[str], None] | None = None,
 ) -> None:
     if parent is not None:
         SettingsWindow(config, on_saved, parent=parent,
                        pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
-                       history=history, on_history_cleared=on_history_cleared)
+                       history=history, on_history_cleared=on_history_cleared,
+                       preview_opacity=preview_opacity,
+                       preview_background=preview_background)
         return
     SettingsWindow(config, on_saved,
                    pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
-                   history=history, on_history_cleared=on_history_cleared).run()
+                   history=history, on_history_cleared=on_history_cleared,
+                   preview_opacity=preview_opacity,
+                   preview_background=preview_background).run()

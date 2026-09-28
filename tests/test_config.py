@@ -234,3 +234,17 @@ def test_user_chosen_height_is_kept_when_migrating():
     config = loads("[ui]\nheight = 300\n")
     assert config.ui.height == 300
     assert all("ui.height" not in note for note in config.migrations)
+
+
+def test_background_image_round_trip(workdir):
+    """自定义背景图路径要能存进配置再读回来。"""
+
+    config = Config()
+    config.ui.background_image = r"C:\pics\我的背景.png"
+    config.ui.opacity = 0.85
+
+    path = save_config(config, workdir / "config.toml")
+    loaded = load_config(path)
+
+    assert loaded.ui.background_image == r"C:\pics\我的背景.png"
+    assert loaded.ui.opacity == 0.85

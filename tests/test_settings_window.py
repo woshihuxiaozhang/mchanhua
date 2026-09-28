@@ -386,3 +386,83 @@ def test_settings_pages_are_scrollable():
         assert window._page_bodies["界面外观"].winfo_reqheight() > 400
     finally:
         window.root.destroy()
+
+
+# ---- 背景图按钮 / 透明度滑块 ----
+
+
+def test_settings_window_picks_background_image(workdir, monkeypatch):
+    from PIL import Image
+
+    from mchanhua.ui.settings_window import SettingsWindow
+
+    path = workdir / "bg.png"
+    Image.new("RGB", (640, 360), (10, 20, 30)).save(path)
+
+    previews: list[str] = []
+    try:
+        window = SettingsWindow(Config(), preview_background=previews.append)
+    except tk.TclError as exc:  # pragma: no cover
+        pytest.skip(f"没有可用的图形环境：{exc}")
+    try:
+        monkeypatch.setattr(
+            "mchanhua.ui.settings_window.filedialog.askopenfilename", lambda **k: str(path)
+        )
+        window.pick_background()
+
+        assert window._background_path == str(path)
+        assert previews == [str(path)]                     # 立即预览
+        assert window.collect().ui.background_image == str(path)   # 保存时会写进配置
+
+        window.clear_background()
+        assert window._background_path == ""
+        assert previews[-1] == ""
+        assert window.collect().ui.background_image == ""
+    finally:
+        window.root.destroy()
+
+
+def test_settings_window_rejects_broken_background(workdir, monkeypatch):
+    from mchanhua.ui.settings_window import SettingsWindow
+
+    broken = workdir / "broken.png"
+    broken.write_text("not an image", encoding="utf-8")
+
+    shown: list[tuple] = []
+    monkeypatch.setattr(
+        "mchanhua.ui.settings_window.messagebox.showerror",
+        lambda title, text, **k: shown.append((title, text)),
+    )
+    try:
+        window = SettingsWindow(Config())
+    except tk.TclError as exc:  # pragma: no cover
+        pytest.skip(f"没有可用的图形环境：{exc}")
+    try:
+        monkeypatch.setattr(
+            "mchanhua.ui.settings_window.filedialog.askopenfilename", lambda **k: str(broken)
+        )
+        window.pick_background()
+
+        assert window._background_path == ""               # 坏图不生效
+        assert shown and "打不开" in shown[0][0]
+    finally:
+        window.root.destroy()
+
+
+def test_settings_window_opacity_slider_updates_value_and_previews():
+    from mchanhua.ui.settings_window import SettingsWindow
+
+    seen: list[float] = []
+    try:
+        window = SettingsWindow(Config(), preview_opacity=seen.append)
+    except tk.TclError as exc:  # pragma: no cover
+        pytest.skip(f"没有可用的图形环境：{exc}")
+    try:
+        window._on_opacity_slide(0.55)
+
+        assert window._vars["ui.opacity"].get() == "0.55"
+        assert window._opacity_value.cget("text") == "0.55"
+        assert seen == [0.55]
+        assert abs(window.collect().ui.opacity - 0.55) < 1e-6
+    finally:
+        window.root.destroy()
