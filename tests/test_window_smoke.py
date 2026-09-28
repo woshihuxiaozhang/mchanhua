@@ -196,7 +196,7 @@ def test_window_is_compact():
     try:
         window.root.update_idletasks()
         width, height = window._place_window()
-        assert height <= 260          # 物理像素；改之前是 268 起步
+        assert height <= 240          # 物理像素；改之前是 268 起步
     finally:
         window.root.destroy()
 
@@ -207,5 +207,27 @@ def test_light_title_bar_helper_does_not_raise():
     window = _window()
     try:
         assert use_light_title_bar(window.root) in (True, False)   # 非 Windows 返回 False
+    finally:
+        window.root.destroy()
+
+
+def test_text_area_grows_with_result_and_shrinks_on_clear():
+    """译文/原文区跟着内容长高：没结果时收成一行，窗口不留大片空白。"""
+
+    window = _window()
+    try:
+        window.root.update_idletasks()
+        idle = window._place_window()[1]
+
+        window.show_result(
+            PipelineResult(source_lines=["a", "b", "c"], output_lines=["甲", "乙", "丙"])
+        )
+        window.root.update_idletasks()
+        grown = window._place_window()[1]
+        assert grown > idle
+
+        window._clear()
+        window.root.update_idletasks()
+        assert window._place_window()[1] <= idle + 1
     finally:
         window.root.destroy()

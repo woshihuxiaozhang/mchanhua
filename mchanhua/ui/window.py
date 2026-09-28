@@ -108,7 +108,8 @@ class ResultWindow:
         self.root.after(200, self._apply_alpha)
 
         self.root.geometry(f"{ui.width}x{ui.height}")
-        self.root.minsize(400, 190)
+        # 最小尺寸要够小，否则它会把"按内容自适应"卡住（曾经把高度顶在 190）
+        self.root.minsize(360, 110)
 
         family = ui.font_family or "Microsoft YaHei UI"
         self.f_title = ctk.CTkFont(family=family, size=snap_font_size(ui.font_size))
@@ -132,6 +133,7 @@ class ResultWindow:
         self._build_meta()
         self.set_status("待取词：把鼠标移到物品上按热键")
         self._build_buttons()
+        self._fit_text_areas(1, 1)        # 空闲时只留一行高，不留一大片空白
         self._place_window()
         # customtkinter 的尺寸换算在窗口映射之后才生效，等它稳定再摆一次，
         # 否则高度是按"还没定型的请求尺寸"算的，底下会多出一块空白。
@@ -315,6 +317,7 @@ class ResultWindow:
         self.target.delete("1.0", "end")
         self.source.delete("1.0", "end")
         self.set_status("待取词：把鼠标移到物品上按热键")
+        self._fit_text_areas(1, 1)        # 清空后收回一行高，窗口跟着变矮
 
     # ---- 显示 ----
     def set_status(self, text: str) -> None:
@@ -326,6 +329,7 @@ class ResultWindow:
     def show_source(self, lines: list[str], elapsed_ms: float) -> None:
         self.source.delete("1.0", "end")
         self.source.insert("1.0", "\n".join(lines))
+        self._fit_text_areas(result_lines=1, source_lines=len(lines))
         self.set_status(f"OCR {elapsed_ms:.0f} ms · 正在翻译…")
 
     def show_result(self, result: PipelineResult) -> None:
@@ -348,6 +352,19 @@ class ResultWindow:
         if result.warnings:
             parts.append(f"提示：{result.warnings[0]}")
         self.set_status(" · ".join(parts))
+        self._fit_text_areas(len(result.output_lines) or 1, len(result.source_lines) or 1)
+
+    def _fit_text_areas(self, result_lines: int, source_lines: int) -> None:
+        """译文/原文区跟着内容长高：没有结果时只留一行，不留一大片空白。"""
+
+        def units(lines: int, font, max_lines: int) -> int:
+            size = abs(int(font.cget("size"))) or 13
+            # 1.6 倍字号：行高 1.5 倍再留一点余量，避免出现滚动条
+            return max(1, min(lines, max_lines)) * round(size * 1.6)
+
+        self.target.configure(height=units(result_lines, self.f_result, 5))
+        self.source.configure(height=units(source_lines, self.f_source, 4))
+        self._place_window()
 
     def on_poll(self) -> None:
         if self.heartbeat is not None:
