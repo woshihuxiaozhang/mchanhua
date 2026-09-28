@@ -34,6 +34,10 @@ LEGACY_HOTKEYS: dict[str, dict[str, str]] = {
     "quit": {"ctrl+alt+x": ""},
 }
 
+# 旧版本曾经把主窗口撑成整屏（半透明白底盖住桌面，什么都点不到），
+# 迁移时把尺寸收回到"小窗"的范围；用户在设置里自己定的尺寸（新版配置）不动。
+LEGACY_WINDOW_LIMITS = {"width": (320, 900), "height": (160, 700)}
+
 
 def default_config_path() -> Path:
     base = os.environ.get("APPDATA")
@@ -102,7 +106,7 @@ class UiConfig:
     panel: str = "#F7F6F3"        # 面板：暖灰（配合半透明即"灰色透明"）
     border: str = "#EAEAEA"       # 结构线：极浅灰
     text: str = "#111111"         # 正文：off-black，不用纯黑
-    text_dim: str = "#787774"     # 次级：暖灰
+    text_dim: str = "#737069"     # 次级：暖灰（#787774 在白/灰底上只有 4.14:1，不达标）
     accent: str = "#1F6C9F"       # 强调（文字/图标）
     accent_soft: str = "#E1F3FE"  # 强调底色（淡蓝，用于标签）
     button_background: str = "#F7F6F3"
@@ -219,6 +223,12 @@ def migrate(config: Config, version: int | None) -> list[str]:
             if replacement is not None and replacement != current:
                 setattr(config.hotkeys, field_name, replacement)
                 changes.append(f"hotkeys.{field_name}: {current} → {replacement or '（留空）'}")
+        for field_name, (low, high) in LEGACY_WINDOW_LIMITS.items():
+            current = int(getattr(config.ui, field_name))
+            clamped = min(high, max(low, current))
+            if clamped != current:
+                setattr(config.ui, field_name, clamped)
+                changes.append(f"ui.{field_name}: {current} → {clamped}")
     config.version = CONFIG_VERSION
     return changes
 

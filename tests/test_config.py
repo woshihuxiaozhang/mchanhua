@@ -200,3 +200,23 @@ def test_migrate_ignores_newer_version():
     config.hotkeys.translate = "ctrl+alt+q"
     assert migrate(config, CONFIG_VERSION + 1) == []
     assert config.hotkeys.translate == "ctrl+alt+q"
+
+
+def test_legacy_oversized_window_is_clamped():
+    """旧版本会把主窗口撑成整屏（半透明白底盖住桌面）；迁移时必须收回小窗。"""
+
+    config = loads(
+        "[hotkeys]\ntranslate = \"ctrl+alt+q\"\n\n[ui]\nwidth = 2560\nheight = 1440\n"
+    )
+    assert config.ui.width == 900
+    assert config.ui.height == 700
+    assert any("ui.width" in note for note in config.migrations)
+
+
+def test_current_version_keeps_user_window_size():
+    """新版配置里用户自己定的尺寸（哪怕很大）不该被动手脚。"""
+
+    text = dumps(Config())
+    text = text.replace("width = 430", "width = 1200").replace("height = 235", "height = 800")
+    assert loads(text).ui.width == 1200
+    assert loads(text).ui.height == 800

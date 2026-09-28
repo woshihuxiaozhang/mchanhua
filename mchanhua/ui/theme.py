@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields
 
 from mchanhua.config import UiConfig
-from mchanhua.ui.contrast import audit
+from mchanhua.ui.contrast import contrast_ratio, is_hex
 
 # 默认浅色主题（自愈时用它覆盖被旧实例写坏的混搭配色）
 DEFAULT_LIGHT: dict[str, object] = {
@@ -16,7 +16,7 @@ DEFAULT_LIGHT: dict[str, object] = {
     "panel": "#F7F6F3",
     "border": "#EAEAEA",
     "text": "#111111",
-    "text_dim": "#787774",
+    "text_dim": "#737069",
     "accent": "#1F6C9F",
     "accent_soft": "#E1F3FE",
     "button_background": "#F7F6F3",
@@ -26,21 +26,41 @@ DEFAULT_LIGHT: dict[str, object] = {
     "opacity": 1.0,
 }
 
+# 自愈门槛：低于这个对比度就是"看不见"，必须纠正；
+# 只是没到 4.5:1 的配色（比如用户自己选的深色主题）只在设置界面里提示，不动它。
+MIN_READABLE = 3.0
+
+
+def unreadable_reasons(theme: "Theme") -> list[str]:
+    """返回"读不清"的理由；空列表表示配色虽然未必完美，但正常可读。"""
+
+    reasons: list[str] = []
+    for name, foreground in (("正文文字", theme.text), ("次级文字", theme.text_dim)):
+        for surface_name, surface in (("面板", theme.panel), ("背景", theme.background)):
+            if not (is_hex(foreground) and is_hex(surface)):
+                reasons.append(f"{name}或{surface_name}不是合法的 #RRGGBB 颜色")
+                continue
+            ratio = contrast_ratio(foreground, surface)
+            if ratio < MIN_READABLE:
+                reasons.append(f"{name}在{surface_name}上只剩 {ratio:.2f}:1（低于 {MIN_READABLE}）")
+    return reasons
+
 
 def heal_theme(config) -> list[str]:
-    """配色不达标时恢复默认浅色。返回被修正的问题列表（空表示没问题）。
+    """配色"读不清"时恢复默认浅色。返回被修正的问题列表（空表示没问题）。
 
     旧实例用旧配色保存配置时，会把新版本新增的字段（如 text_dim）与旧背景混搭，
     造出"深底浅字/浅底浅字"这种读不清的配色；这里在启动时自动纠正。
+    用户自己挑的深色主题只要看得清，就原样保留。
     """
 
     theme = Theme.from_config(config.ui)
-    problems = audit(theme)
-    if not problems:
+    reasons = unreadable_reasons(theme)
+    if not reasons:
         return []
     for key, value in DEFAULT_LIGHT.items():
         setattr(config.ui, key, value)
-    return problems
+    return reasons
 
 
 @dataclass(frozen=True)
