@@ -241,7 +241,25 @@ class Application:
         from mchanhua.ui.settings_window import open_settings
 
         self.window.set_status("设置窗口已打开")
-        open_settings(self.config, on_saved=self.apply_config, parent=self.window.root)
+        open_settings(
+            self.config,
+            on_saved=self.apply_config,
+            parent=self.window.root,
+            pause_hotkeys=self.suspend_hotkeys,
+            resume_hotkeys=self.resume_hotkeys,
+        )
+
+    def suspend_hotkeys(self) -> None:
+        """临时卸掉全局热键（设置界面录热键时用）：否则录 Ctrl+Alt 会顺手触发翻译。"""
+
+        self.hotkeys.stop()
+        get_logger().info("热键已暂停（正在录制新热键）")
+
+    def resume_hotkeys(self) -> None:
+        if not self.use_hotkeys:
+            return
+        self.hotkeys.start()
+        get_logger().info("热键已恢复")
 
     def apply_config(self, config: Config) -> None:
         """设置保存后：热键与服务立即重建，界面外观重启后生效。"""

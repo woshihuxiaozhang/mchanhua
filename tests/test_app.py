@@ -70,3 +70,51 @@ def test_request_translate_enqueues_one_shot_callable():
     kind, payload = app.queue.get_nowait()
     assert kind == "call"
     assert callable(payload)
+
+
+class _RecordingHotkeys:
+    """记录 stop/start 的假热键管理器。"""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def stop(self) -> None:
+        self.calls.append("stop")
+
+    def start(self) -> None:
+        self.calls.append("start")
+
+
+def test_recording_hotkeys_pauses_and_resumes_global_hotkeys():
+    """录制新热键时要先卸掉全局热键，否则按 Ctrl+Alt 会顺手触发翻译。"""
+
+    app = Application(
+        Config(),
+        use_hotkeys=True,
+        grabber=FakeGrabber(),
+        ocr=FakeOcr(),
+        window=FakeWindow(),
+    )
+    manager = _RecordingHotkeys()
+    app.hotkeys = manager
+
+    app.suspend_hotkeys()
+    app.resume_hotkeys()
+
+    assert manager.calls == ["stop", "start"]
+
+
+def test_resume_hotkeys_does_nothing_when_hotkeys_disabled():
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=FakeOcr(),
+        window=FakeWindow(),
+    )
+    manager = _RecordingHotkeys()
+    app.hotkeys = manager
+
+    app.resume_hotkeys()
+
+    assert manager.calls == []

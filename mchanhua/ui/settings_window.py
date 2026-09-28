@@ -1,6 +1,6 @@
 """设置窗口：按参考图实现——白卡片、文字标签页、灰底输入框。
 
-三个标签页：翻译服务（含 API Key 独立输入框）、热键（可录制）、界面外观。
+三个标签页：翻译服务（含 API Key 独立输入框）、热键（可录制 / 可选择按键）、界面外观。
 保存后热键与翻译服务立即生效，界面外观重启后生效。
 """
 
@@ -19,7 +19,8 @@ from mchanhua.logging_setup import get_logger
 from mchanhua.paths import app_dir, log_dir
 from mchanhua.translate.connection import test_connection
 from mchanhua.translate.providers import PRESETS, guess_provider
-from mchanhua.ui.hotkey_capture import hotkey_from_event
+from mchanhua.ui.hotkey_capture import ComboTracker
+from mchanhua.ui.hotkey_picker import pick_hotkey
 from mchanhua.ui.theme import DEFAULT_LIGHT
 from mchanhua.ui.window import _is_dark
 
@@ -47,15 +48,22 @@ class SettingsWindow:
         config: Config,
         on_saved: Callable[[Config], None] | None = None,
         parent: tk.Misc | None = None,
+        pause_hotkeys: Callable[[], None] | None = None,
+        resume_hotkeys: Callable[[], None] | None = None,
     ) -> None:
         self.config = config
         self.on_saved = on_saved
+        # 录制热键时把全局热键暂停，免得一边录一边把翻译触发了
+        self.pause_hotkeys = pause_hotkeys
+        self.resume_hotkeys = resume_hotkeys
         ctk.set_appearance_mode("dark" if _is_dark(config.ui.background) else "light")
         self.root = ctk.CTkToplevel(parent) if parent is not None else ctk.CTk()
         self.root.title("mchanhua 设置")
-        self.root.geometry("760x520")
+        self.root.geometry("820x540")     # 热键页多了一列「选择按键」按钮，留够宽度
         self.root.configure(fg_color="#F7F7F7")
         self._vars: dict[str, tk.Variable] = {}
+        self._trackers: dict[str, ComboTracker] = {}
+        self._capture_previous: dict[str, str] = {}
         self._pages: dict[str, ctk.CTkFrame] = {}
         self._tab_buttons: dict[str, ctk.CTkButton] = {}
 
@@ -233,19 +241,99 @@ class SettingsWindow:
     # ---- 热键 ----
     def _build_hotkeys(self) -> None:
         page = self._make_page("热键")
-        ctk.CTkLabel(page, text="点输入框后直接按组合键即可（例如 ctrl+alt、alt+/）；也可以手输。留空 = 不注册。",
-                     font=self.f_small, text_color=LABEL, anchor="w").grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 10)
-        )
-        for index, (key, label) in enumerate(HOTKEY_LABELS, start=1):
+        ctk.CTkLabel(
+            page,
+            text="点「选择按键」按住一个或多个键就能选（只按 Ctrl+Alt 也算，Esc 取消）。"
+                 "也可以点输入框直接按键录制。留空 = 不注册。",
+            font=self.f_small, text_color=LABEL, anchor="w", justify="left", wraplength=600,
+        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(4, 10))
+        self._vars["capture_in_entry"] = tk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            page, text="在输入框里直接按键录制（关掉后可以手动输入）",
+            variable=self._vars["capture_in_entry"], font=self.f_small, text_color=LABEL,
+            fg_color=BLUE, hover_color=BLUE, checkbox_width=16, checkbox_height=16,
+        ).grid(row=1, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 8))
+        for index, (key, label) in enumerate(HOTKEY_LABELS, start=2):
             entry = self._row(page, index, label, f"hotkey.{key}", getattr(self.config.hotkeys, key))
-            entry.bind("<KeyPress>", lambda event, k=key: self._capture(event, k))
+            self._bind_entry_capture(entry, key)
+            self._button(page, "选择按键", lambda k=key: self._pick_hotkey(k), width=88).grid(
+                row=index, column=2, sticky="w", padx=(0, 8)
+            )
 
-    def _capture(self, event, key: str) -> str:
-        hotkey = hotkey_from_event(event.keysym, int(event.state))
-        if hotkey:
-            self._vars[f"hotkey.{key}"].set(hotkey)
+    def _bind_entry_capture(self, entry, key: str) -> None:
+        """输入框里直接按键录制：按住、松开都跟着记，只按修饰键也能录出来。"""
+
+        self._trackers[key] = ComboTracker()
+        entry.bind("<FocusIn>", lambda _event, k=key: self._capture_focus_in(k))
+        entry.bind("<FocusOut>", lambda _event, k=key: self._capture_focus_out(k))
+        entry.bind("<KeyPress>", lambda event, k=key: self._capture_press(event, k))
+        entry.bind("<KeyRelease>", lambda event, k=key: self._capture_release(event, k))
+
+    def _capture_focus_in(self, key: str) -> None:
+        if not self._capture_mode():
+            return
+        self._trackers[key].reset()
+        self._capture_previous[key] = str(self._vars[f"hotkey.{key}"].get())
+        self._set_hotkey_var(key, "")          # 进入输入框先清空，避免和旧值混在一起
+        if self.pause_hotkeys is not None:
+            try:
+                self.pause_hotkeys()           # 录的时候别把翻译触发了
+            except Exception:  # pragma: no cover - 暂停失败不该拦住录制
+                pass
+
+    def _capture_focus_out(self, key: str) -> None:
+        if not self._capture_mode():
+            return
+        if not self._trackers[key].candidate:
+            # 点进来又点走、什么都没按：把原来的热键还回去，别悄悄清空
+            self._set_hotkey_var(key, self._capture_previous.get(key, ""))
+        if self.resume_hotkeys is not None:
+            try:
+                self.resume_hotkeys()
+            except Exception:  # pragma: no cover
+                pass
+
+    def _capture_press(self, event, key: str) -> str:
+        if not self._capture_mode():
+            return ""
+        if (event.keysym or "").lower() == "escape":
+            return "break"
+        candidate = self._trackers[key].press(event.keysym)
+        if candidate:
+            self._set_hotkey_var(key, candidate)
         return "break"
+
+    def _capture_release(self, event, key: str) -> str:
+        if not self._capture_mode():
+            return ""
+        candidate = self._trackers[key].release(event.keysym)
+        if candidate:
+            self._set_hotkey_var(key, candidate)
+        return "break"
+
+    def _capture_mode(self) -> bool:
+        var = self._vars.get("capture_in_entry")
+        return True if var is None else bool(var.get())
+
+    def _set_hotkey_var(self, key: str, value: str) -> None:
+        self._vars[f"hotkey.{key}"].set(value)
+
+    def _pick_hotkey(self, key: str) -> None:
+        """弹「选择按键」对话框，把选好的组合写回这一行。"""
+
+        label = dict(HOTKEY_LABELS).get(key, key)
+        current = str(self._vars[f"hotkey.{key}"].get()).strip()
+        chosen = pick_hotkey(
+            self.root,
+            title=f"选择热键：{label}",
+            initial=current,
+            on_pause=self.pause_hotkeys,
+            on_resume=self.resume_hotkeys,
+        )
+        if chosen is None:          # 取消：什么都不动
+            return
+        self._vars[f"hotkey.{key}"].set(chosen)
+        get_logger().info("热键已选择：%s = %r", label, chosen)
 
     # ---- 界面外观 ----
     def _build_appearance(self) -> None:
@@ -390,8 +478,12 @@ def open_settings(
     config: Config,
     on_saved: Callable[[Config], None] | None = None,
     parent: tk.Misc | None = None,
+    pause_hotkeys: Callable[[], None] | None = None,
+    resume_hotkeys: Callable[[], None] | None = None,
 ) -> None:
     if parent is not None:
-        SettingsWindow(config, on_saved, parent=parent)
+        SettingsWindow(config, on_saved, parent=parent,
+                       pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys)
         return
-    SettingsWindow(config, on_saved).run()
+    SettingsWindow(config, on_saved,
+                   pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys).run()
