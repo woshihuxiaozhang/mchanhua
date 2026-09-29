@@ -1,0 +1,48 @@
+mchanhua · Minecraft 屏幕取词翻译
+=================================
+
+怎么启动
+--------
+双击本文件夹里的 mchanhua.exe 即可（绿色版，不用安装、不用装 Python）。
+第一次打开如果 Windows 提示"已保护你的电脑"，点「更多信息」→「仍要运行」。
+
+第一次使用要做的两件事
+----------------------
+1) 填 API Key
+   点小窗右下角的「设置」→「翻译服务」→ 填 API Key → 点「测试连接」确认通 → 「保存并应用」。
+   · DeepSeek：https://platform.deepseek.com 申请，便宜、中文好
+   · 想完全免费离线：服务商选「Ollama 本地模型（免 key）」，需要本机装 Ollama
+
+2) 框出你要翻译的位置
+   在游戏里按 Alt+V 进入框选：拖动鼠标（或方向键）把要翻译的地方框起来，
+   按 Enter 保存成「区域1」，可以接着框第二块…… 按 Esc 或 Backspace 结束。
+   之后按 Ctrl+Alt 就会一次翻译所有区域。
+
+默认热键（都能在设置 →「热键」里改）
+------------------------------------
+Ctrl+Alt     翻译所有已保存的区域
+Alt+/        框选一块并立刻翻译（不保存）
+Alt+m        全屏翻译
+Alt+s        翻译剪贴板里的图片（配合 Win+Shift+S 截图）
+Alt+v        框选并保存区域（Enter 存一个 / Delete 撤上一个 / 数字键 1~9 删指定区域 / Esc 结束）
+Ctrl+Alt+W   显示或隐藏小窗
+
+游戏里鼠标被锁住？
+------------------
+第一人称游戏在前台时会把鼠标锁住（画面也一按就弹菜单），所以框选遮罩设计成"不抢焦点"：
+游戏不会失焦、字幕一直看得见，框选时用 方向键移动框、Ctrl+方向键缩放、Enter 确认即可。
+也可以把游戏设成窗口化/无边框窗口，鼠标就能自由拖动框选。
+
+配置、日志在哪
+--------------
+配置：%APPDATA%\mchanhua\config.toml（API Key、热键、区域、外观都在这里）
+日志：%APPDATA%\mchanhua\logs\mchanhua.log（排查问题先看它）
+调试：%APPDATA%\mchanhua\debug\（最近一次抓的图和识别结果）
+
+几个常用开关（改 config.toml）
+------------------------------
+translate.humanize       = true   让 AI 额外给一段通顺的整段译文
+ocr.settle_frames        = 2      抓屏前确认画面稳定的帧数；设 1 更快但可能抓到半截提示框
+regions.clear_on_exit    = true   退出程序时清空已保存的区域（想留着改成 false）
+
+更多说明见项目主页的 README：https://github.com/woshihuxiaozhang/mchanhua

@@ -31,6 +31,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+rem ship the how-to-use note next to the exe (ASCII filename, UTF-8 content)
+copy /y "assets\HOW-TO-USE.txt" "dist\mchanhua\HOW-TO-USE.txt" >nul
+
 echo [4/4] done. Output: dist\mchanhua\mchanhua.exe
 dir /s /-c "dist\mchanhua\mchanhua.exe" | findstr mchanhua.exe
 pause

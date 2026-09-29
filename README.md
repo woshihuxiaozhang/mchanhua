@@ -53,9 +53,13 @@
 
 ### A. 安装包（推荐）
 
-1. 到 Releases 下载 `mchanhua-3.0.0-win64.zip`，解压后双击 `安装.cmd`（装到 `%LOCALAPPDATA%\Programs\mchanhua`，不需要管理员）；
-2. 从开始菜单或桌面快捷方式启动；
-3. 小窗右下角「设置」→「翻译服务」填 API Key →「测试连接」→「保存并应用」。
+1. 到 **Releases** 下载 `mchanhua-3.0.0-win64.zip`（约 104 MB），解压到任意目录（例如 `D:\mchanhua`）；
+2. 双击文件夹里的 `mchanhua.exe` 就能用（绿色版，无需安装、无需 Python）；
+3. 小窗右下角「设置」→「翻译服务」填 API Key →「测试连接」→「保存并应用」；
+4. 同目录下的 `HOW-TO-USE.txt` 是给第一次使用者看的上手说明（热键、配置位置、常见问题）。
+
+> 想让程序出现在开始菜单/桌面（而不是每次去文件夹里点），可以拿源码跑一次 `.\安装.cmd`：
+> 它会把 `dist\mchanhua` 复制到 `%LOCALAPPDATA%\Programs\mchanhua` 并建快捷方式。
 
 ### B. 源码运行
 
