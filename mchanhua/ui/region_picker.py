@@ -60,7 +60,9 @@ class RegionPicker:
         on_remove=None,
     ) -> None:
         self.physical_screen = physical_screen
-        self.existing = list(existing or [])
+        # 注意：这里必须**共享**同一个列表对象——框选过程中调用方会往里追加新区域，
+        # 复制一份的话遮罩就永远看不到刚存的区域（黄线不显示就是这个原因）
+        self.existing = existing if existing is not None else []
         self.on_accept = on_accept
         self.on_remove = on_remove
         self.accepted = 0
@@ -139,11 +141,11 @@ class RegionPicker:
         if self.on_accept:
             lines.append("Backspace / Esc 结束框选")
             if self.on_remove is not None:
-                lines.append("Delete 删掉上一个框的区域")
+                lines.append("Delete 删掉最后一个区域（刚框的、以前的都行）")
         else:
             lines.append("Backspace / Esc 取消")
-        if self.accepted:
-            lines.append(f"已框住 {self.accepted} 个区域（黄色虚线框是已保存的）")
+        if self.existing:
+            lines.append(f"目前有 {len(self.existing)} 个区域（黄色虚线框）")
         if extra:
             lines.append(extra)
         self.canvas.itemconfigure(self._hint, text="\n".join(lines))
@@ -219,8 +221,6 @@ class RegionPicker:
             return
         if name in ("delete", "kp delete") and self.on_remove is not None:
             self.on_remove()                  # 谁来删由调用方决定（还要同步配置文件）
-            if self.accepted:
-                self.accepted -= 1
             self._draw_existing()
             self._set_hint()
             return

@@ -253,13 +253,37 @@ def test_delete_without_new_area_does_nothing(workdir: Path, monkeypatch):
     app.config.regions.add_area(Region(1, 1, 10, 10), name="旧区域")
 
     def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None):
-        on_remove()                                    # 还没框就按 Delete
+        on_remove()                                    # 还没框就按 Delete：删掉最后一个（旧区域）
         return None
 
     monkeypatch.setattr("mchanhua.app.pick_region", fake_pick)
     app.perform_select_region()
 
-    assert app.config.regions.area_names() == ["旧区域"]        # 老区域不会被误删
+    assert app.config.regions.area_names() == []               # 允许删掉以前存的区域
+    assert load_config(Path(app.config_path)).regions.area_names() == []
+
+
+def test_delete_removes_previous_session_area_too(workdir: Path, monkeypatch):
+    """Delete 不再只管"刚框的"：以前存的区域也能删（用户就是这么被卡住的）。"""
+
+    app = _app(workdir)
+    app.config.regions.add_area(Region(1, 1, 10, 10), name="区域1")      # 上次会话存的
+    save_config(app.config, Path(app.config_path))
+    seen: list[list[str]] = []
+
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None):
+        seen.append([name for name, _ in existing])       # 遮罩上能看到旧区域
+        on_remove()                                       # 直接按 Delete
+        seen.append([name for name, _ in existing])
+        assert existing == []                             # 遮罩上的黄线也同步没了
+        return None
+
+    monkeypatch.setattr("mchanhua.app.pick_region", fake_pick)
+    app.perform_select_region()
+
+    assert seen == [["区域1"], []]
+    assert app.config.regions.area_names() == []
+    assert load_config(Path(app.config_path)).regions.area_names() == []
 
 
 # ---- 用完即清：退出清空 + 被强杀后下次启动补清 ----

@@ -326,6 +326,41 @@ def test_existing_areas_are_drawn_on_the_overlay():
         root.destroy()
 
 
+def test_existing_list_is_shared_with_the_caller():
+    """回归：遮罩必须共享调用方的区域列表——框选过程中新存的区域要立刻画出黄线。"""
+
+    shown: list[tuple[str, Region]] = []
+    picker, root = _picker()
+    try:
+        picker.existing = shown
+        picker.on_accept = lambda region: shown.append(("区域1", region))
+        picker.physical_screen = Region(0, 0, 2560, 1440)
+
+        assert picker.canvas.find_withtag("existing") == ()      # 一开始没有区域
+        picker.handle_key("enter")                               # 框住第一个
+
+        items = picker.canvas.find_withtag("existing")
+        assert len(items) >= 2                                   # 黄线框 + 名字立刻出现
+        text = picker.canvas.itemcget(picker._hint, "text")
+        assert "目前有 1 个区域" in text
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_picker_keeps_caller_list_object_identity():
+    shown: list[tuple[str, Region]] = [("区域1", Region(10, 10, 50, 50))]
+    picker, root = _picker()
+    try:
+        picker.existing = shown
+        shown.append(("区域2", Region(60, 60, 50, 50)))          # 调用方后加也算数
+        picker._draw_existing()
+        assert len(picker.canvas.find_withtag("existing")) >= 4
+    finally:
+        picker.close()
+        root.destroy()
+
+
 def _wrap_root():
     try:
         root = tk.Tk()

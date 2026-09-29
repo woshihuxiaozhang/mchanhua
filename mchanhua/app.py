@@ -648,13 +648,16 @@ class Application:
                 get_logger().warning("区域保存失败：%s", region.to_csv())
 
         def handle_remove() -> None:
-            """Delete：撤掉刚框的那个区域（框错了不用退出重来）。"""
+            """Delete：删掉最后一个区域（刚框的、以前存的都能删，像撤销一样）。"""
 
-            if not saved:
-                self.window.set_status("还没框过新区域，没有可删除的")
+            names = self.config.regions.area_names()
+            if not names:
+                self.window.set_status("还没有任何区域，没有可删除的")
                 return
-            name = saved.pop()
+            name = names[-1]
             self.config.regions.remove_area(name)
+            if name in saved:
+                saved.remove(name)
             shown[:] = [(item, box) for item, box in shown if item != name]
             self._save_config()
             self.window.set_status(f"已删除「{name}」")
