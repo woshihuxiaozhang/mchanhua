@@ -486,7 +486,9 @@ class SettingsWindow:
             page,
             text="Ctrl+Alt 会一次翻译所有勾选的区域（整屏只抓一次、OCR 一次）。\n"
                  "新增区域：在游戏里按 Alt+V 连续框选（Enter 存一个，Delete 撤掉上一个）。\n"
-                 "删除区域：下面每一行右边的「删除」按钮；勾选框只控制「要不要翻译它」。",
+                 "删除区域：下面每一行右边的「删除」按钮；勾选框只控制「要不要翻译它」。\n"
+                 "注意：默认退出程序会清空所有区域（想留着继续用，把 config.toml 里的 "
+                 "clear_on_exit 改成 false）。",
             font=self.f_small, text_color=LABEL, anchor="w", justify="left", wraplength=620,
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(4, 8))
 

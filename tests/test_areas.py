@@ -262,6 +262,71 @@ def test_delete_without_new_area_does_nothing(workdir: Path, monkeypatch):
     assert app.config.regions.area_names() == ["旧区域"]        # 老区域不会被误删
 
 
+# ---- 用完即清：退出清空 + 被强杀后下次启动补清 ----
+
+
+def test_areas_are_cleared_when_program_exits(workdir: Path):
+    app = _app(workdir)
+    app.config.regions.add_area(Region(10, 20, 100, 50), name="区域1")
+    app.config.regions.add_area(Region(30, 40, 120, 60), name="区域2")
+    save_config(app.config, Path(app.config_path))
+
+    removed = app.clear_areas_on_exit()
+
+    assert removed == 2
+    assert app.config.regions.area_names() == []
+    # 配置文件的 [regions.fixed] 也要真的空掉
+    text = Path(app.config_path).read_text(encoding="utf-8")
+    assert '"区域1"' not in text
+    assert 'areas = []' in text
+
+
+def test_leftover_areas_are_cleared_on_next_start(workdir: Path):
+    """上次被强杀（没走到退出逻辑）时，启动时补一次清空。"""
+
+    config_path = save_config(Config(), workdir / "config.toml")
+    config = load_config(config_path)
+    config.regions.add_area(Region(1, 2, 30, 40), name="残留区域")
+    save_config(config, config_path)
+
+    reloaded = load_config(config_path)
+    assert reloaded.regions.area_names() == ["残留区域"]      # 文件里确实还留着
+
+    app = Application(
+        reloaded,
+        config_path=config_path,
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=_OcrWithTwoAreas(),
+        window=FakeWindow(),
+    )
+
+    assert app.config.regions.area_names() == []              # 启动就补清了
+    assert load_config(config_path).regions.area_names() == []
+
+
+def test_clear_on_exit_can_be_turned_off(workdir: Path):
+    """想留着区域继续用，就把 clear_on_exit 关掉。"""
+
+    config_path = save_config(Config(), workdir / "config.toml")
+    config = load_config(config_path)
+    config.regions.clear_on_exit = False
+    config.regions.add_area(Region(1, 2, 30, 40), name="要留下的区域")
+
+    app = Application(
+        config,
+        config_path=config_path,
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=_OcrWithTwoAreas(),
+        window=FakeWindow(),
+    )
+
+    assert app.config.regions.area_names() == ["要留下的区域"]
+    assert app.clear_areas_on_exit() == 0
+    assert app.config.regions.area_names() == ["要留下的区域"]
+
+
 # ---- 设置里的"选区"页 ----
 
 

@@ -144,6 +144,8 @@ class RegionsConfig:
     follow_cursor: str | None = "-280,-20,560,440"
     # 参与翻译的区域（按顺序、只留启用的）。停用的区域仍留在 fixed 里，方便随时开回来。
     areas: list[str] = field(default_factory=list)
+    # 退出程序就把保存的区域清掉（用户要求：不想留下上次框的区域）
+    clear_on_exit: bool = True
 
     def fixed_region(self, name: str) -> Region | None:
         raw = self.fixed.get(name)
@@ -352,6 +354,7 @@ def loads(text: str) -> Config:
                 for item in (_section(data, "regions").get("areas") or [])
                 if str(item).strip()
             ],
+            clear_on_exit=bool(_section(data, "regions").get("clear_on_exit", True)),
         ),
         glossary={str(k): str(v) for k, v in (_section(data, "glossary")).items()},
     )
@@ -426,6 +429,7 @@ def dumps(config: Config) -> str:
     # 参与翻译的区域（有序）；没列进来的区域等于"停用"
     names = ", ".join(_dump_scalar(item) for item in config.regions.areas)
     lines.append(f"areas = [{names}]")
+    lines.append(f"clear_on_exit = {_dump_scalar(config.regions.clear_on_exit)}")
     lines.append("")
     lines.append("[regions.fixed]")
     for name, raw in config.regions.fixed.items():

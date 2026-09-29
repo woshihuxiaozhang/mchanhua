@@ -107,6 +107,37 @@ class Application:
             self.last_region,
             config.regions.follow_cursor,
         )
+        self._clear_leftover_areas()
+
+    # ---- 区域用完即清（退出清空；被强杀时下次启动补清）----
+    def clear_areas_on_exit(self) -> int:
+        """退出程序时清掉保存的区域，返回清掉了几个。"""
+
+        if not self.config.regions.clear_on_exit:
+            return 0
+        names = self.config.regions.area_names()
+        if not names:
+            return 0
+        self.config.regions.fixed.clear()
+        self.config.regions.areas = []
+        self._save_config()
+        get_logger().info("退出前清空了 %d 个区域：%s", len(names), "、".join(names))
+        return len(names)
+
+    def _clear_leftover_areas(self) -> None:
+        """上次可能是被强杀退出的，残留的区域在这里补清一次。"""
+
+        if not self.config.regions.clear_on_exit:
+            return
+        names = self.config.regions.area_names()
+        if not names:
+            return
+        self.config.regions.fixed.clear()
+        self.config.regions.areas = []
+        self._save_config()
+        get_logger().warning(
+            "上次退出时没清掉的 %d 个区域（%s）已补清", len(names), "、".join(names)
+        )
 
     # ---- 翻译器 ----
     def _ensure_translator(self):
@@ -756,6 +787,7 @@ class Application:
         self.watchdog.stop()
         self.hotkeys.stop()
         self.grabber.close()
+        self.clear_areas_on_exit()
 
     def _schedule_heartbeat(self) -> None:
         """每秒一次心跳：界面只要在正常处理事件，日志里就会持续打点。"""
