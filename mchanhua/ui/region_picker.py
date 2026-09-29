@@ -7,8 +7,15 @@ import tkinter as tk
 from mchanhua.geometry import Region, logical_to_physical, normalize_drag
 
 
-def pick_region(physical_screen: Region, parent: tk.Misc | None = None) -> Region | None:
-    """弹出遮罩让用户拖拽选择，返回物理像素区域；按 Esc 或点击不拖拽则取消。"""
+def pick_region(
+    physical_screen: Region,
+    parent: tk.Misc | None = None,
+    on_ready=None,
+) -> Region | None:
+    """弹出遮罩让用户拖拽选择，返回物理像素区域；按 Esc / 右键 / 点击不拖拽都会取消。
+
+    on_ready 只在测试里用（拿到遮罩窗口的引用去模拟按键），正常调用不用传。
+    """
 
     owns_root = parent is None
     root = tk.Tk() if owns_root else tk.Toplevel(parent)
@@ -22,6 +29,16 @@ def pick_region(physical_screen: Region, parent: tk.Misc | None = None) -> Regio
     root.configure(bg="black")
     canvas = tk.Canvas(root, bg="black", highlightthickness=0, cursor="crosshair")
     canvas.pack(fill="both", expand=True)
+
+    # 独占输入 + 抢键盘焦点：不然按 Esc 事件根本送不到遮罩上（以前就是这个问题）
+    try:
+        root.grab_set()
+    except tk.TclError:  # pragma: no cover
+        pass
+    try:
+        root.focus_force()
+    except tk.TclError:  # pragma: no cover
+        pass
 
     state = {"start": None, "rect": None, "result": None}
 
@@ -65,11 +82,14 @@ def pick_region(physical_screen: Region, parent: tk.Misc | None = None) -> Regio
     canvas.bind("<ButtonPress-1>", on_press)
     canvas.bind("<B1-Motion>", on_drag)
     canvas.bind("<ButtonRelease-1>", on_release)
+    canvas.bind("<ButtonPress-3>", on_cancel)      # 右键也能取消
+    canvas.bind("<Escape>", on_cancel)             # 焦点在画布上时也要收得到
     root.bind("<Escape>", on_cancel)
 
     root.update_idletasks()
+    if on_ready is not None:                        # pragma: no cover - 测试用
+        on_ready(root)
     if owns_root:
-        root.grab_set()
         root.mainloop()
     else:
         root.wait_window()
