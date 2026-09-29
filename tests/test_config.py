@@ -76,6 +76,16 @@ def test_unknown_keys_are_ignored():
     assert config.ocr.backend == "windows"
 
 
+def test_retired_background_image_key_is_ignored(workdir):
+    """自定义背景图功能已经取消：旧配置里残留的那行当没看见，也不会再写回去。"""
+
+    text = '[ui]\nbackground_image = "D:\\\\pics\\\\bg.png"\nopacity = 0.9\n'
+    config = loads(text)
+
+    assert config.ui.opacity == 0.9
+    assert "background_image" not in dumps(config)
+
+
 def test_invalid_values_raise():
     with pytest.raises(ConfigError):
         loads("[ocr]\nupscale = 0\n")
@@ -236,15 +246,13 @@ def test_user_chosen_height_is_kept_when_migrating():
     assert all("ui.height" not in note for note in config.migrations)
 
 
-def test_background_image_round_trip(workdir):
-    """自定义背景图路径要能存进配置再读回来。"""
+def test_opacity_round_trip(workdir):
+    """透明度要能存进配置再读回来。"""
 
     config = Config()
-    config.ui.background_image = r"C:\pics\我的背景.png"
     config.ui.opacity = 0.85
 
     path = save_config(config, workdir / "config.toml")
     loaded = load_config(path)
 
-    assert loaded.ui.background_image == r"C:\pics\我的背景.png"
     assert loaded.ui.opacity == 0.85

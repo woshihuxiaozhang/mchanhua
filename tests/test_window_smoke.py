@@ -425,49 +425,6 @@ def test_opacity_is_applied_and_can_go_back_to_opaque():
         window.root.destroy()
 
 
-def test_background_image_covers_window(workdir):
-    from PIL import Image
-
-    path = workdir / "bg.png"
-    Image.new("RGB", (800, 300), (30, 60, 90)).save(path)
-
-    window = _window()
-    try:
-        window.root.geometry("430x240")
-        window.root.update()
-        window.set_background_image(str(path))
-        window._render_background(force=True)
-        window.root.update_idletasks()
-
-        assert window._background_active is True
-        assert window.background_label.winfo_manager() == "place"
-        # 图片按窗口尺寸裁好，背景标签贴在最底层
-        assert window._background_photo.width() == window.card.winfo_width()
-
-        window.set_background_image("")           # 清掉之后回到纯色
-        window.root.update_idletasks()
-        assert window._background_active is False
-        assert window.background_label.winfo_manager() == ""
-    finally:
-        window.root.destroy()
-
-
-def test_broken_background_falls_back_to_color(workdir):
-    broken = workdir / "broken.png"
-    broken.write_text("not an image", encoding="utf-8")
-
-    window = _window()
-    try:
-        window.root.geometry("430x240")
-        window.root.update()
-        window.set_background_image(str(broken))
-        window._render_background(force=True)
-
-        assert window._background_active is False      # 坏图不会把窗口搞崩
-    finally:
-        window.root.destroy()
-
-
 def test_history_message_updates_the_panel():
     import queue as queue_module
 

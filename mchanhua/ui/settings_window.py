@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import tkinter as tk
 from tkinter import colorchooser, messagebox
-from tkinter import filedialog
 from typing import Callable
 
 import customtkinter as ctk
@@ -24,7 +23,6 @@ from mchanhua.translate.connection import test_connection
 from mchanhua.translate.providers import PRESETS, guess_provider
 from mchanhua.ui.hotkey_capture import ComboTracker
 from mchanhua.ui.hotkey_picker import pick_hotkey
-from mchanhua.ui.background import IMAGE_PATTERNS, load_background
 from mchanhua.ui.theme import DEFAULT_LIGHT
 from mchanhua.ui.titlebar import use_light_title_bar
 from mchanhua.ui.window import _is_dark
@@ -58,7 +56,6 @@ class SettingsWindow:
         history: TranslationHistory | None = None,
         on_history_cleared: Callable[[], None] | None = None,
         preview_opacity: Callable[[float], None] | None = None,
-        preview_background: Callable[[str], None] | None = None,
     ) -> None:
         self.config = config
         self.on_saved = on_saved
@@ -67,10 +64,8 @@ class SettingsWindow:
         self.resume_hotkeys = resume_hotkeys
         self.history = history
         self.on_history_cleared = on_history_cleared
-        # 拖滑块 / 选图时给主窗口做即时预览
+        # 拖透明度滑块时给主窗口做即时预览
         self.preview_opacity = preview_opacity
-        self.preview_background = preview_background
-        self._background_path = str(config.ui.background_image or "")
         ctk.set_appearance_mode("dark" if _is_dark(config.ui.background) else "light")
         self.root = ctk.CTkToplevel(parent) if parent is not None else ctk.CTk()
         self.root.title("mchanhua 设置")
@@ -460,63 +455,16 @@ class SettingsWindow:
         self._opacity_slider.set(float(ui.opacity))
         self._opacity_slider.grid(row=opacity_row, column=1, sticky="we", pady=9, padx=(0, 8))
 
-        # ---- 背景图：选一张图片铺满窗口 ----
-        background_row = opacity_row + 1
-        ctk.CTkLabel(page, text="背景图片", font=self.f_label, text_color=LABEL,
-                     width=90, anchor="w").grid(row=background_row, column=0, sticky="w",
-                                                padx=(8, 12), pady=9)
-        self._background_var = tk.StringVar(value=self._background_path or "（未设置，用纯色背景）")
-        self._background_entry = ctk.CTkEntry(
-            page, textvariable=self._background_var, height=34, corner_radius=6,
-            font=self.f_label, fg_color=FIELD, text_color=TEXT,
-            border_width=1, border_color=LINE,
-        )
-        self._background_entry.configure(state="readonly")
-        self._background_entry.grid(row=background_row, column=1, sticky="we", pady=9, padx=(0, 8))
-        background_actions = ctk.CTkFrame(page, corner_radius=0, fg_color="transparent")
-        background_actions.grid(row=background_row, column=2, sticky="w", padx=(0, 8))
-        self._button(background_actions, "选择图片…", self.pick_background).pack(side="left")
-        self._button(background_actions, "清除", self.clear_background, width=56).pack(
-            side="left", padx=6
-        )
-
         self._button(page, "恢复默认主题", self.restore_default_theme).grid(
-            row=background_row + 1, column=1, sticky="w", pady=(12, 0), padx=(0, 8)
+            row=opacity_row + 1, column=1, sticky="w", pady=(12, 0), padx=(0, 8)
         )
 
-    # ---- 透明度 / 背景图 ----
+    # ---- 透明度 ----
     def _on_opacity_slide(self, value: float) -> None:
         self._vars["ui.opacity"].set(f"{float(value):.2f}")
         self._opacity_value.configure(text=f"{float(value):.2f}")
         if self.preview_opacity is not None:
             self.preview_opacity(float(value))
-
-    def pick_background(self) -> None:
-        """选一张图片当窗口背景（等比裁切铺满，不拉伸变形）。"""
-
-        path = filedialog.askopenfilename(
-            title="选择背景图片",
-            filetypes=[("图片", IMAGE_PATTERNS), ("所有文件", "*.*")],
-        )
-        if not path:
-            return
-        if load_background(path, (64, 64)) is None:
-            messagebox.showerror("图片打不开", f"这个文件不是能用的图片：\n{path}")
-            return
-        self._set_background(path, preview=True)
-        get_logger().info("已选择背景图：%s", path)
-
-    def clear_background(self) -> None:
-        if not self._background_path:
-            return
-        self._set_background("", preview=True)
-        get_logger().info("已清除背景图")
-
-    def _set_background(self, path: str, preview: bool = False) -> None:
-        self._background_path = str(path or "")
-        self._background_var.set(self._background_path or "（未设置，用纯色背景）")
-        if preview and self.preview_background is not None:
-            self.preview_background(self._background_path)
 
     def _pick_color(self, key: str) -> None:
         chosen = colorchooser.askcolor(color=str(self._vars[f"ui.{key}"].get()) or "#FFFFFF")[1]
@@ -617,7 +565,6 @@ class SettingsWindow:
             value = str(self._vars[f"ui.{key}"].get()).strip()
             if value:
                 setattr(config.ui, key, value)
-        config.ui.background_image = self._background_path
         return config
 
     def validate(self) -> list[str]:
@@ -680,17 +627,14 @@ def open_settings(
     history: TranslationHistory | None = None,
     on_history_cleared: Callable[[], None] | None = None,
     preview_opacity: Callable[[float], None] | None = None,
-    preview_background: Callable[[str], None] | None = None,
 ) -> None:
     if parent is not None:
         SettingsWindow(config, on_saved, parent=parent,
                        pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
                        history=history, on_history_cleared=on_history_cleared,
-                       preview_opacity=preview_opacity,
-                       preview_background=preview_background)
+                       preview_opacity=preview_opacity)
         return
     SettingsWindow(config, on_saved,
                    pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
                    history=history, on_history_cleared=on_history_cleared,
-                   preview_opacity=preview_opacity,
-                   preview_background=preview_background).run()
+                   preview_opacity=preview_opacity).run()

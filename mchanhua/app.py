@@ -327,7 +327,6 @@ class Application:
             history=self.history,
             on_history_cleared=self.refresh_history,
             preview_opacity=self.preview_opacity,
-            preview_background=self.preview_background,
         )
 
     def preview_opacity(self, value: float) -> None:
@@ -336,13 +335,6 @@ class Application:
         setter = getattr(self.window, "set_opacity", None)
         if setter is not None:
             setter(value)
-
-    def preview_background(self, path: str) -> None:
-        """设置里选/清背景图时即时预览。"""
-
-        setter = getattr(self.window, "set_background_image", None)
-        if setter is not None:
-            setter(path)
 
     def recent_history(self):
         """最近 20 条翻译记录（小窗历史面板用）。"""

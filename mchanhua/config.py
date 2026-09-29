@@ -41,6 +41,9 @@ LEGACY_WINDOW_LIMITS = {"width": (320, 900), "height": (160, 700)}
 # v3 的默认高度偏大，会让小窗底下多出一块空白（用户反馈"窗口太高"）。
 OLD_DEFAULT_HEIGHT = 235
 
+# 已经不再支持的历史字段：配置文件里残留的就当没看见（不报"未知字段"，也别写回去）
+RETIRED_FIELDS = {"ui": {"background_image"}}
+
 
 def default_config_path() -> Path:
     base = os.environ.get("APPDATA")
@@ -107,8 +110,6 @@ class UiConfig:
     position: str = "right"
     # ---- 主题（改这里就能换界面风格，不用动代码）----
     background: str = "#FFFFFF"    # 画布：纯白
-    # 自定义背景图（留空 = 用上面的纯色）。图片会被等比裁切铺满窗口
-    background_image: str = ""
     panel: str = "#F7F6F3"        # 面板：暖灰（配合半透明即"灰色透明"）
     border: str = "#EAEAEA"       # 结构线：极浅灰
     text: str = "#111111"         # 正文：off-black，不用纯黑
@@ -203,6 +204,8 @@ def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
 
 def _build(cls: type, data: dict[str, Any], section: str) -> Any:
     allowed = {f for f in cls.__dataclass_fields__}
+    retired = RETIRED_FIELDS.get(section, set())
+    data = {key: value for key, value in data.items() if key not in retired}
     kwargs = {k: v for k, v in data.items() if k in allowed}
     unexpected = set(data) - allowed
     try:
