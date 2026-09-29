@@ -97,6 +97,9 @@ class Application:
         self._translate_lock = threading.Lock()
         self._pending_jobs: list[tuple[str, Region | None]] = []
         self._hidden_for_capture = False
+        # 框选遮罩是用嵌套事件循环弹出来的（wait_window），期间热键消息照样会被处理——
+        # 不挡住就会出现"按一次弹一层遮罩、连着截好几次"（见日志里的连续触发）
+        self._picking = False
         logger.info(
             "初始化完成：采集后端 %s，OCR 后端 %s，标定区域 %s，跟随光标区域 %s",
             self.grabber.name,
@@ -187,6 +190,9 @@ class Application:
     def perform_translate(self, region: Region | None = None) -> None:
         """在主线程里启动一次取词翻译（真正的活儿交给工作线程）。"""
 
+        if self._picking:
+            get_logger().info("正在框选，忽略这次取词")
+            return
         if not self._translate_lock.acquire(blocking=False):
             self._queue_pending("region", region)
             return
@@ -197,6 +203,9 @@ class Application:
     def perform_translate_fullscreen(self) -> None:
         """全屏翻译：整屏识别后翻译，行数超过上限时只翻前若干行。"""
 
+        if self._picking:
+            get_logger().info("正在框选，忽略这次全屏翻译")
+            return
         if not self._translate_lock.acquire(blocking=False):
             self._queue_pending("fullscreen")
             return
@@ -534,6 +543,9 @@ class Application:
     def perform_select_region(self) -> None:
         """只框选并保存，不翻译（默认 Alt+V）。"""
 
+        if self._picking:
+            get_logger().info("上一次框选还没结束，忽略这次 Alt+V")
+            return
         try:
             if self._pick_and_save_region() is None:
                 self.window.set_status("已取消框选")
@@ -543,6 +555,9 @@ class Application:
     def perform_select_and_translate(self) -> None:
         """框选后立即翻译该选区（Alt+/）。**不保存**选区，避免覆盖 Alt+V 设定的区域。"""
 
+        if self._picking:
+            get_logger().info("上一次框选还没结束，忽略这次 Alt+/")
+            return
         region = self._pick_region()
         if region is None:
             self._show_after_capture()      # 取消框选：窗口放回来
@@ -556,10 +571,12 @@ class Application:
         """只弹出框选，不做任何持久化（供 Alt+/ 临时取词使用）。"""
 
         # 框选时先把自己的窗口收起来：不然挡在屏幕上的字幕根本框不到
-        self._hide_window_for_pick()
+        self._picking = True
         try:
+            self._hide_window_for_pick()
             return pick_region(self.grabber.primary_monitor(), self.window.root)
         finally:
+            self._picking = False
             cleared = reset_pressed_state()
             if cleared:
                 get_logger().info("框选结束后清理了 %d 个残留按键状态", cleared)

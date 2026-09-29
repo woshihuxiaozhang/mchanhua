@@ -365,3 +365,69 @@ def test_select_region_restores_window(monkeypatch):
     assert seen == [1]
     assert window.root.deiconified >= 1
     assert app.config.regions.custom_region() is not None
+
+
+# ---- 框选期间再按热键不能重复弹遮罩（日志里抓到过连开 5 层）----
+
+
+def test_repeated_hotkeys_during_pick_are_ignored(monkeypatch):
+    """遮罩开着时热键消息照样会被处理：必须挡住，不能又弹一层、又截一次。"""
+
+    window = FakeWindow()
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=FakeOcr(),
+        window=window,
+    )
+    app.translator = DecodingTranslator()
+    app.config.ocr.settle_frames = 1
+
+    picks: list[int] = []
+    during: list[bool] = []
+
+    def fake_pick(_monitor, _parent):
+        picks.append(1)
+        if len(picks) == 1:                       # 模拟用户框选时又连按热键
+            app.perform_select_and_translate()    # Alt+/
+            app.perform_select_region()           # Alt+V
+            app.perform_translate(Region(10, 10, 50, 50))       # Ctrl+Alt
+            app.perform_translate_fullscreen()    # Alt+M
+            during.append(app._picking)           # 期间标志必须是 True
+            during.append(app.queue.empty())      # 被忽略的请求不许入队
+        return Region(100, 200, 400, 300)
+
+    monkeypatch.setattr("mchanhua.app.pick_region", fake_pick)
+
+    app.perform_select_and_translate()
+    messages = wait_for(app, "result")            # 正常的那一次照常翻译
+    for call in [message[1] for message in messages if message[0] == "call"]:
+        call()
+
+    assert picks == [1]                           # 只弹了一层遮罩
+    assert during == [True, True]
+    assert app.history.all()                      # 框选那一次翻译照常记进历史
+
+
+def test_hotkeys_work_again_after_picking(monkeypatch):
+    window = FakeWindow()
+    app = Application(
+        Config(),
+        use_hotkeys=False,
+        grabber=FakeGrabber(),
+        ocr=FakeOcr(),
+        window=window,
+    )
+    app.translator = DecodingTranslator()
+    app.config.ocr.settle_frames = 1
+
+    monkeypatch.setattr("mchanhua.app.pick_region", lambda _m, _p: Region(100, 200, 400, 300))
+    app.perform_select_and_translate()
+    wait_for(app, "result")
+
+    assert app._picking is False                  # 框选结束后恢复正常
+
+    app.perform_translate(Region(100, 200, 400, 300))
+    wait_for(app, "result")
+    assert len(app.history.all()) == 2
