@@ -147,6 +147,47 @@ def test_layout_switches_back_and_forth():
         window.root.destroy()
 
 
+# ---- 底部按钮固定在窗口底部 ----
+
+
+def test_buttons_stay_visible_when_window_shrinks():
+    """回归：把窗口压小之后，底部四个按钮不能被挤出窗口外。"""
+
+    window = _window()
+    try:
+        window.show_result(
+            PipelineResult(
+                source_lines=["a", "b", "c", "d", "e"],
+                output_lines=["甲", "乙", "丙", "丁", "戊"],
+            )
+        )
+        window.root.geometry("420x170")          # 故意压得很小
+        window.root.update()
+        window._apply_layout()
+        window.root.update_idletasks()
+
+        bar = window.action_bars[0]
+        window_bottom = window.root.winfo_rooty() + window.root.winfo_height()
+        bar_bottom = bar.winfo_rooty() + bar.winfo_height()
+        assert bar.winfo_ismapped()
+        assert bar_bottom <= window_bottom + 2    # 按钮整条都在窗口里
+        assert bar.winfo_width() > 100            # 也没被压成一条线
+    finally:
+        window.root.destroy()
+
+
+def test_buttons_survive_collapsing():
+    """折叠时按钮也留着（以前会被藏起来）。"""
+
+    window = _window()
+    try:
+        window.toggle_collapsed()
+        window.root.update_idletasks()
+        assert window.action_bars[0].winfo_manager() == "pack"
+    finally:
+        window.root.destroy()
+
+
 # ---- AI 整段整理 ----
 
 

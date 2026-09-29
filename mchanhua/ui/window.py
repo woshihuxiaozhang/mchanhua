@@ -160,10 +160,12 @@ class ResultWindow:
         self._drag_origin = None
 
         self._build_title()
-        self._build_text()
-        self._build_meta()
-        self.set_status("待取词：把鼠标移到物品上按热键")
+        # 先占住底部：按钮和状态行贴底，内容区再吃剩下的空间。
+        # 这样窗口被压小的时候是内容区变矮（可滚动），而不是把按钮挤出窗口外。
         self._build_buttons()
+        self._build_meta()
+        self._build_text()
+        self.set_status("待取词：把鼠标移到物品上按热键")
         self._build_history_panel()
         self._fit_text_areas(1, 1)        # 空闲时只留一行高，不留一大片空白
         self._place_window()
@@ -339,12 +341,12 @@ class ResultWindow:
             self.card, text="", anchor="w", justify="left",
             font=self.f_meta, text_color="#9A9A9A",
         )
-        self.status.pack(fill="x", padx=16)
+        self.status.pack(side="bottom", fill="x", padx=16)
 
     # ---- 底部按钮 ----
     def _build_buttons(self) -> None:
         bar = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
-        bar.pack(fill="x", padx=12, pady=(8, 8))
+        bar.pack(side="bottom", fill="x", padx=12, pady=(8, 8))
         self.action_bars.append(bar)
         specs = (
             ("翻译选区", self._translate, True, "scan-text"),
@@ -520,15 +522,12 @@ class ResultWindow:
         self.compare_mode = not self.collapsed
         if self.collapsed:
             self.source_area.pack_forget()
-            for bar in self.action_bars:
-                bar.pack_forget()
+            # 按钮行不再藏起来：它固定在窗口底部，折叠时也一直点得到
             self.set_status("已折叠（双击标题行可展开）")
         else:
             if not self.history_open:      # 正在看历史时别把原文区又塞回来
                 self._side_by_side = False          # 强制重新按当前尺寸排版
                 self._apply_layout()
-            for bar in self.action_bars:
-                bar.pack(fill="x", padx=12, pady=(8, 8))
             self.set_status("已展开（译文在上，原文在下）")
         # 折叠/展开只改尺寸，别把挪过的窗口拉回原位
         self._resize_keep_position(HISTORY_WINDOW_MIN_H if self.history_open else 0)
