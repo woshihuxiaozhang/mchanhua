@@ -1,86 +1,146 @@
-# mchanhua
+# mchanhua · Minecraft 屏幕取词翻译
 
-Minecraft 屏幕取词汉化小工具：按热键截取游戏画面的一块区域，本地 OCR 识别英文，
-交给 DeepSeek 翻译，在一个置顶小窗里显示译文。只服务自己玩的时候看懂，不生成汉化补丁。
+> 按热键框住游戏里的英文，本地 OCR 识别 + AI 翻译，在一个小窗里显示译文（原文同时对照）。
+> 只读取屏幕，**不改动游戏文件、不注入进程**，纯粹给自己玩的时候看懂。
+
+![主窗口](screenshots/main.png)
+
+## 功能
+
+**取词方式**（热键都可以在设置里改）
+
+| 默认热键 | 作用 |
+|---|---|
+| `Ctrl+Alt` | 翻译所有已保存的区域（整屏只抓一次、OCR 一次） |
+| `Alt+/` | 框选一块并立刻翻译（不保存） |
+| `Alt+m` | 全屏翻译（整屏识别，取前 60 行） |
+| `Alt+s` | 翻译剪贴板里的图片（配合 `Win+Shift+S` 截图） |
+| `Alt+v` | 框选并保存区域：`Enter` 存一个、`Delete` 撤上一个、数字键 `1~9` 删指定区域、`Esc` 结束 |
+| `Ctrl+Alt+W` | 显示 / 隐藏小窗 |
+
+热键支持键盘录制（点输入框直接按组合键）和「选择按键」（按住一个或多个键，**只按 `Ctrl+Alt` 这类纯修饰键组合也能录**）。录制期间会自动暂停全局热键，不会误触发翻译。
+
+**多区域**：游戏里要看的字往往不止一处（物品提示、任务追踪、字幕……）。用 `Alt+v` 连续框最多 5 块，`Ctrl+Alt` 一次翻完 —— 整屏只抓一次图、OCR 只跑一次，按区域筛行后合并成一次翻译请求，**多翻几块既不变慢也不多花钱**。译文与原文按 `［区域1］`、`［区域2］` 分组显示。
+
+![区域管理](screenshots/settings-areas.png)
+
+**翻译质量**
+
+- 提示词针对 Minecraft 调过：口语化、保留情绪，不机翻腔；
+- 额外给一段「整段整理」译文：把被 OCR 切碎的行接回去、按中文语序组织（严格限制不得增删信息，逐行译文仍保留可核对）；
+- 支持术语表固定专有名词译法；
+- OCR 容错：提示模型按最接近的常见英文词理解识别错误（`l/I`、`o/0`、`rn/m` 之类）；
+- sqlite 翻译缓存，同一句只翻一次；网络抖动自动重试（0.6s、1.2s 退避），服务端错误不重试。
+
+**翻译服务**：DeepSeek / OpenAI / Kimi / 通义千问 / 智谱 / 硅基流动 / Ollama（本地，免 key）/ 自定义 OpenAI 兼容接口，随时切换。
+
+**界面**
+
+- 小窗是白卡片 + 透明外框，可拖动、可调透明度；
+- **横向拉长时译文与原文自动左右并排**，竖向时上下排列；底部按钮永远贴住窗口底边；
+- 时钟按钮展开「最近 20 次」翻译历史（窗内浮层，退出程序即清空）；
+- 设置窗口包含翻译服务、热键、界面外观（配色/字号/透明度）、选区管理、历史翻译五个页签。
+
+![设置](screenshots/settings-service.png)
+
+## 环境要求
+
+- Windows 10 / 11（x64）
+- 屏幕缩放 100%~200% 均可（内部统一按物理像素处理，不会错位）
+- 一个翻译服务的 API Key；用 Ollama 则完全免费离线
 
 ## 安装
 
+### A. 安装包（推荐）
+
+1. 到 Releases 下载 `mchanhua-3.0.0-win64.zip`，解压后双击 `安装.cmd`（装到 `%LOCALAPPDATA%\Programs\mchanhua`，不需要管理员）；
+2. 从开始菜单或桌面快捷方式启动；
+3. 小窗右下角「设置」→「翻译服务」填 API Key →「测试连接」→「保存并应用」。
+
+### B. 源码运行
+
 ```powershell
-D:\Tools\Miniconda3\python.exe -m venv .venv
+git clone <你的仓库地址> mchanhua
+cd mchanhua
+python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-（依赖也可直接用 `pip install -e .` 安装。）
-
-## 当前进度
-
-- [x] 区域模型与 DPI 感知（物理像素坐标，避免 125% 缩放导致的偏移）
-- [x] 配置文件读写（默认在 `%APPDATA%\mchanhua\config.toml`，仓库外）
-- [x] 屏幕采集（mss 后端，Pillow 兜底）
-- [x] OCR 后端两个：Windows 自带 OCR、RapidOCR
-- [x] OCR 精度测量工具与结论文档（见 `docs/ocr-findings.md`）
-- [x] DeepSeek 翻译（JSON 结构化输出、术语表、格式串保护）+ sqlite 缓存
-- [x] 小窗界面、全局热键、框选区域
-
-## 使用
-
-### 打包版（推荐）
-
-双击 `dist\mchanhua\mchanhua.exe`，右下角「设置」按钮里填 API Key（支持 DeepSeek 等多家服务）。
-打包与产物说明见 `docs/v3-打包说明.md`。
-
-### 源码运行
-
-```powershell
-# 1) 生成配置文件，然后把 DeepSeek API key 填进 [translate] api_key
-.\.venv\Scripts\python.exe -m mchanhua config-init
-
-# 2) 启动小窗
 .\.venv\Scripts\python.exe -m mchanhua run
 ```
 
-使用流程：按 `Alt+V` 框选一次取词区域（会保存到配置文件）→ 之后按 `Ctrl+Alt` 翻译该区域、
-按 `Alt+/` 重新框选并立即翻译、按 `Alt+m` 全屏翻译 → 小窗显示原文与译文。
-翻译结果会缓存，同一句话不会重复调用接口。
-
-热键见 `docs/v2-改动.md`，全部可在 `config.local.toml` 的 `[hotkeys]` 段修改。
-
-## 命令行
+### C. 自己打包
 
 ```powershell
-# 环境自检：DPI 模式、显示器、OCR 语言、API key 状态
-.\.venv\Scripts\python.exe -m mchanhua probe
-
-# 对已有截图做 OCR（排查识别效果用）
-.\.venv\Scripts\python.exe -m mchanhua ocr-image shot.png --json
-
-# 截取屏幕区域并 OCR，同时把截图存下来
-.\.venv\Scripts\python.exe -m mchanhua ocr-screen -r 100,200,600,400 --save tmp/shot.png
-
-# 指定 OCR 后端（RapidOCR 在真实游戏文本上明显更准）
-.\.venv\Scripts\python.exe -m mchanhua ocr-image shot.png --backend rapidocr
-
-# 生成默认配置文件
-.\.venv\Scripts\python.exe -m mchanhua config-init
+.\打包.cmd
 ```
 
-## 测试
+会先跑测试，再用 PyInstaller 生成 `dist\mchanhua\mchanhua.exe`；`.\安装.cmd` 负责安装到本机。
+
+## 使用
+
+1. 在游戏里按 `Alt+v`，把要翻译的地方框起来（可以连框几块），`Esc` 结束；
+2. 之后按 `Ctrl+Alt` 就能一次翻完所有区域；
+3. 只想临时翻一块，按 `Alt+/` 框完立刻出结果；
+4. 小窗左上角显示整理后的整段译文，下面是逐行译文，右侧（宽窗口时）是原文对照。
+
+### 游戏里鼠标被锁住怎么办
+
+第一人称游戏（《我的世界》等）在前台全屏时会**独占鼠标**，而且**一失去前台就会弹出游戏菜单**挡住画面。所以框选遮罩采用「不抢焦点」的方式：游戏不会失焦，字幕一直看得见；框选时用**方向键移动框、`Ctrl+方向键` 缩放、`Enter` 确认**即可（这些键在 MC 里默认没有绑定，不会误操作）。也可以按 `M` 临时开/关鼠标拖框。
+
+## 配置与日志
+
+- 配置：`%APPDATA%\mchanhua\config.toml`（API Key、热键、区域、外观都在里面；项目目录下的 `config.local.toml` 优先级更高，不会被提交）
+- 日志：`%APPDATA%\mchanhua\logs\mchanhua.log`（启动时会写「启动自检」，记录实际加载的配置与热键，排查问题先看它）
+- 调试：`%APPDATA%\mchanhua\debug\`（最近一次抓图与识别结果）
+
+几个常用开关：
+
+| 配置项 | 默认 | 说明 |
+|---|---|---|
+| `translate.humanize` | `true` | 是否让模型额外给「整段整理」译文 |
+| `translate.cache_enabled` | `true` | 翻译缓存 |
+| `ocr.settle_frames` | `2` | 抓屏前确认画面稳定的帧数，设 `1` 最快但可能抓到半截提示框 |
+| `regions.clear_on_exit` | `true` | 退出程序时清空已保存的区域 |
+
+## 常见问题
+
+**框选时鼠标不动？** 游戏锁着鼠标，用方向键框（见上文），或把游戏设成窗口化/无边框窗口。
+
+**框出来的区域没文字？** 小窗会提示「选区内没有识别到文字」，不会把整屏内容当成选区结果翻译。
+
+**翻译看起来不全？** 默认 `ocr.capture_mode = "screen"`（整屏识别再按选区筛行），能保证每一行完整；如果嫌慢可改成 `padded`。
+
+**区域每次重启就没了？** 这是 `regions.clear_on_exit = true` 的默认行为，改成 `false` 就会保留。
+
+**快捷键和别的软件冲突？** 设置 →「热键」页改掉即可，冲突时保存会提示。
+
+**费用？** 只有翻译请求会调用你的 API；OCR 完全在你本机跑。多区域共用一次请求，缓存命中的句子不重复计费。
+
+## 开发
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m pytest        # 313 项测试
 ```
 
-## 排查"翻译不全"
+目录结构：
 
-每次识别翻译后都会在 `tmp/` 下写出：
+```
+mchanhua/            程序本体
+  capture.py         屏幕采集（mss，Pillow 兜底）+ 画面稳定检测
+  ocr/               OCR 后端（Windows OCR / RapidOCR）
+  translate/         翻译层（OpenAI 兼容 + 缓存 + 术语表 + 占位符保护）
+  ui/                小窗、设置窗口、框选遮罩、主题
+  app.py             采集 → OCR → 翻译 → 界面的接线
+tests/               313 项测试（纯逻辑 + 界面冒烟）
+docs/                开发过程中的设计/调研/打包说明
+tools/make_icon.py   生成程序图标
+```
 
-- `last_capture.png` —— 这次实际抓到的画面（看选区有没有盖全文字）
-- `last_result.json` —— 识别到的每一行及其坐标、以及对应译文
+更多细节见 [docs/](docs/)：版本总览、打包说明、OCR 精度记录、同类项目调研（UGTLive / SubLens 等）与借鉴点。
 
-## 说明
+欢迎 issue 和 PR。改代码前建议先跑一遍测试；本项目约定**每次改动都补测试并保持全绿**。
 
-- 所有坐标都是**物理像素**。本机 2560x1440 屏幕在 125% 缩放下会被报告成 2048x1152，
-  程序在启动时声明 DPI 感知，避免区域偏移。
-- OCR 语言包来自系统：若 `probe` 显示语言缺失，需要在「设置 → 时间和语言 → 语言和区域」
-  里为该语言安装「可选功能 → 光学字符识别」。
-- 仓库不包含任何 Minecraft 素材；需要真实字体做比对时，从本机安装目录读取。
+## 许可
+
+[MIT](LICENSE)
+
+第三方组件：Pillow、mss、httpx、keyboard、customtkinter、RapidOCR（PP-OCR 模型）、Windows OCR（系统自带）—— 均遵循各自许可证。

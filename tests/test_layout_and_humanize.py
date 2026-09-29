@@ -188,6 +188,24 @@ def test_buttons_survive_collapsing():
         window.root.destroy()
 
 
+def test_startup_reflow_keeps_user_resized_size():
+    """回归：用户自己拉过大小后，启动那次"按内容复摆"不能把尺寸改回去。"""
+
+    window = _window()
+    try:
+        window._user_resized = True
+        window.root.geometry("520x360")
+        window.root.update()
+        before = (window.root.winfo_width(), window.root.winfo_height())
+
+        window._place_window()                 # 启动时那次复摆
+        window.root.update_idletasks()
+
+        assert (window.root.winfo_width(), window.root.winfo_height()) == before
+    finally:
+        window.root.destroy()
+
+
 # ---- AI 整段整理 ----
 
 

@@ -185,8 +185,8 @@ class ResultWindow:
 
         ui = self.config.ui
         logical_w, logical_h = self._required_size()
-        if self._user_moved:
-            # 窗口已经被拖到别处：只按内容调尺寸，别把它拉回配置里的位置
+        if self._user_moved or self._user_resized:
+            # 用户已经挪过位置/拉过大小：别再按配置摆一次，只按内容调整排版
             return self._resize_keep_position(
                 HISTORY_WINDOW_MIN_H if self.history_open else 0
             )
