@@ -1,6 +1,4 @@
-"""框选遮罩：Esc / 右键取消、拖拽出选区。"""
-
-import time
+"""框选遮罩：不抢焦点（游戏不弹菜单）、键盘框选、鼠标框选、确认/取消。"""
 
 import pytest
 
@@ -10,130 +8,185 @@ from mchanhua.geometry import Region  # noqa: E402
 from mchanhua.ui.region_picker import (  # noqa: E402
     DEFAULT_BOX,
     KEY_STEP,
+    RegionPicker,
     pick_region,
 )
 
 SCREEN = Region(0, 0, 2560, 1440)
 
 
-def _root():
+def _picker():
     try:
         root = tk.Tk()
     except tk.TclError as exc:  # pragma: no cover - 无图形环境
         pytest.skip(f"没有可用的图形环境：{exc}")
     root.withdraw()
+    picker = RegionPicker(SCREEN, root)
+    picker.root.update_idletasks()
+    return picker, root
+
+
+def _finish(picker, root):
+    """跑完一次框选：内部靠 after 轮询，这里手动把队列喂进去。"""
+    try:
+        picker._install_hook()          # 只装钩子逻辑，测试里不用真的按键
+    except Exception:
+        pass
+    return picker
+
+
+def test_overlay_does_not_take_focus():
+    """关键回归：遮罩不能抢焦点，否则游戏会失焦弹菜单挡住字幕。"""
+
+    picker = RegionPicker(SCREEN, None)
+    try:
+        assert picker.root.overrideredirect() is True      # 无边框、不激活
+        assert picker.root.grab_current() is None          # 没有独占输入
+        assert picker.root.attributes("-topmost") in (1, "1", True)
+    finally:
+        picker.close()
+
+
+def test_box_starts_in_the_middle():
+    picker, root = _picker()
+    try:
+        left, top, right, bottom = picker.box
+        assert right - left == DEFAULT_BOX[0]
+        assert bottom - top == DEFAULT_BOX[1]
+        # 遮罩用的是 Tk 的逻辑屏幕尺寸（本机 125% 缩放 → 2048），居中即可
+        assert abs((left + right) // 2 - picker.root.winfo_screenwidth() // 2) <= 2
+        assert abs((top + bottom) // 2 - picker.root.winfo_screenheight() // 2) <= 2
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_arrow_keys_move_the_box():
+    picker, root = _picker()
+    try:
+        before = list(picker.box)
+        picker.handle_key("right")
+        picker.handle_key("down")
+        left, top, right, bottom = picker.box
+        assert left == before[0] + KEY_STEP
+        assert top == before[1] + KEY_STEP
+        assert right - left == before[2] - before[0]      # 只是平移
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_shift_arrow_moves_finely():
+    picker, root = _picker()
+    try:
+        before_left = picker.box[0]
+        picker.handle_key("right", shift=True)
+        assert picker.box[0] == before_left + 4
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_ctrl_arrow_resizes_only_the_right_edge():
+    picker, root = _picker()
+    try:
+        left, _, right, _ = picker.box
+        picker.move_box("right", ctrl=True)
+        picker.move_box("right", ctrl=True)
+        assert picker.box[0] == left                       # 左边不动
+        assert picker.box[2] == right + KEY_STEP * 2       # 右边拉宽
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_enter_accepts_current_box():
+    picker, root = _picker()
+    try:
+        picker.handle_key("enter")
+        assert picker.result is not None
+        assert picker._closed is True
+        assert picker.result.width > 0 and picker.result.height > 0
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_backspace_and_escape_cancel():
+    """取消键：Backspace 最安全（Esc 在《我的世界》里会打开游戏菜单）。"""
+
+    for key in ("backspace", "esc"):
+        picker, root = _picker()
+        try:
+            picker.handle_key(key)
+            assert picker.result is None
+            assert picker._closed is True
+        finally:
+            picker.close()
+            root.destroy()
+
+
+# ---- 鼠标（默认关闭，按 M 打开）----
+
+
+def test_mouse_starts_disabled_and_m_toggles_it():
+    picker, root = _picker()
+    try:
+        assert picker.mouse_enabled is False      # 游戏里左键会打到游戏上
+        picker.handle_key("m")
+        assert picker.mouse_enabled is True
+        picker.handle_key("m")
+        assert picker.mouse_enabled is False
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_mouse_drag_picks_region():
+    picker, root = _picker()
+    try:
+        picker.mouse_enabled = True
+        picker.apply_mouse(100, 120, True)
+        picker.apply_mouse(500, 420, True)
+        picker.apply_mouse(500, 420, False)
+
+        assert picker.result is not None
+        assert picker.result.width >= 380
+        assert picker.result.height >= 280
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_mouse_simple_click_does_not_pick():
+    """点一下没拖：不算选区，遮罩继续留着。"""
+
+    picker, root = _picker()
+    try:
+        picker.mouse_enabled = True
+        picker.apply_mouse(300, 300, True)
+        picker.apply_mouse(302, 301, False)
+
+        assert picker.result is None
+        assert picker._closed is False
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_pick_region_returns_none_when_cancelled():
+    """走完整流程（on_ready 里直接确认/取消），拿到结果。"""
+
+    def on_ready(picker):
+        picker.root.after(50, lambda: picker.handle_key("backspace"))
+
+    assert pick_region(SCREEN, _wrap_root(), on_ready=on_ready) is None
+
+
+def _wrap_root():
+    try:
+        root = tk.Tk()
+    except tk.TclError as exc:  # pragma: no cover
+        pytest.skip(f"没有可用的图形环境：{exc}")
+    root.withdraw()
     return root
-
-
-def _run_with(window_actions, timeout: float = 6.0):
-    """弹出遮罩，用 after 模拟用户操作，返回 pick_region 的结果。"""
-
-    def on_ready(overlay):
-        overlay.update()                      # 先让遮罩真的显示出来，事件才送得进去
-        overlay.after(int(timeout * 1000), overlay.destroy)   # 兜底：卡住也要退出
-        for delay, action in window_actions:
-            overlay.after(delay, lambda a=action: a(overlay))
-
-    return pick_region(SCREEN, _root(), on_ready=on_ready)
-
-
-def test_escape_cancels_picking():
-    """按 Esc 退出选框（以前遮罩拿不到焦点，Esc 根本没反应）。"""
-
-    result = _run_with([(60, lambda w: w.event_generate("<Escape>", when="now"))])
-
-    assert result is None
-
-
-def test_right_click_cancels_picking():
-    result = _run_with([(60, lambda w: w.event_generate("<ButtonPress-3>", x=100, y=100, when="now"))])
-
-    assert result is None
-
-
-def test_dragging_returns_region():
-    def drag(widget):
-        canvas = widget.winfo_children()[0]
-        canvas.event_generate("<ButtonPress-1>", x=100, y=120, when="now")
-        canvas.event_generate("<B1-Motion>", x=500, y=420, when="now")
-        canvas.event_generate("<ButtonRelease-1>", x=500, y=420, when="now")
-
-    result = _run_with([(60, drag)])
-
-    assert result is not None
-    # 遮罩是全屏的，逻辑坐标会按屏幕缩放换成物理坐标；这里屏幕就是 2560x1440
-    assert result.width >= 380 and result.height >= 280
-
-
-def test_simple_click_cancels_picking():
-    """点一下不拖：取消（老行为，别退化）。"""
-
-    def click(widget):
-        canvas = widget.winfo_children()[0]
-        canvas.event_generate("<ButtonPress-1>", x=200, y=200, when="now")
-        canvas.event_generate("<ButtonRelease-1>", x=200, y=200, when="now")
-
-    assert _run_with([(60, click)]) is None
-
-
-def test_overlay_takes_keyboard_focus_and_grab():
-    """回归：遮罩必须抢焦点并 grab，否则 Esc 送不到它这里。"""
-
-    captured: dict = {}
-
-    def on_ready(overlay):
-        captured["grab"] = overlay.grab_current() == overlay
-        captured["focus"] = overlay.focus_get() is not None
-        overlay.after(50, overlay.destroy)
-
-    pick_region(SCREEN, _root(), on_ready=on_ready)
-    time.sleep(0)          # 让 after 回调跑完（pick_region 内部已 wait_window）
-
-    assert captured["grab"] is True
-
-
-# ---- 游戏锁住鼠标时的键盘框选（《我的世界》准心场景）----
-
-
-def test_arrow_keys_move_the_box_then_enter_accepts():
-    """鼠标被游戏锁死时，用方向键挪框、Enter 确认也能框出选区。"""
-
-    def press(widget, *keys):
-        for key in keys:
-            widget.event_generate(f"<{key}>", when="now")
-        widget.event_generate("<Return>", when="now")
-
-    base = _run_with([(60, lambda w: press(w, "Right"))])
-    shifted = _run_with([(60, lambda w: press(w, "Right", "Right", "Right", "Down"))])
-
-    assert base is not None and shifted is not None
-    assert shifted.x > base.x                      # 往右挪了
-    assert shifted.y > base.y                      # 也往下挪了
-    assert shifted.width == base.width             # 尺寸不变（只是平移）
-    assert shifted.height == base.height
-
-
-def test_ctrl_arrow_resizes_the_box():
-    def press(widget, ctrl_times: int):
-        widget.event_generate("<Right>", when="now")            # 先让框出现
-        for _ in range(ctrl_times):
-            widget.event_generate("<Control-Right>", when="now")
-        widget.event_generate("<Return>", when="now")
-
-    base = _run_with([(60, lambda w: press(w, 0))])
-    wider = _run_with([(60, lambda w: press(w, 5))])
-
-    assert base is not None and wider is not None
-    assert wider.width > base.width                # 右边界被拉宽
-    assert wider.x == base.x                       # 左边界不动
-
-
-def test_enter_without_any_box_does_nothing():
-    """没按过方向键就按 Enter：不产生选区（也不能崩）。"""
-
-    result = _run_with([
-        (60, lambda w: w.event_generate("<Return>", when="now")),
-        (600, lambda w: w.event_generate("<Escape>", when="now")),
-    ])
-
-    assert result is None
