@@ -654,7 +654,18 @@ class Application:
             if not names:
                 self.window.set_status("还没有任何区域，没有可删除的")
                 return
-            name = names[-1]
+            remove_area(names[-1])
+
+        def handle_remove_index(index: int) -> None:
+            """数字键：删掉指定编号的区域（遮罩上每个黄框都标了编号）。"""
+
+            names = self.config.regions.area_names()
+            if not 1 <= index <= len(names):
+                self.window.set_status(f"没有第 {index} 个区域")
+                return
+            remove_area(names[index - 1])
+
+        def remove_area(name: str) -> None:
             self.config.regions.remove_area(name)
             if name in saved:
                 saved.remove(name)
@@ -669,6 +680,7 @@ class Application:
             existing=shown,
             on_accept=handle,
             on_remove=handle_remove,
+            on_remove_index=handle_remove_index,
         )
         return saved
 

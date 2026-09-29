@@ -305,7 +305,7 @@ def test_hint_mentions_delete_and_area_names():
         picker.on_accept = lambda region: None
         picker.on_remove = lambda: None
         picker._set_hint()
-        text = picker.canvas.itemcget(picker._hint, "text")
+        text = picker.hint_label.cget("text")
         assert "Delete" in text and "结束框选" in text
     finally:
         picker.close()
@@ -341,7 +341,7 @@ def test_existing_list_is_shared_with_the_caller():
 
         items = picker.canvas.find_withtag("existing")
         assert len(items) >= 2                                   # 黄线框 + 名字立刻出现
-        text = picker.canvas.itemcget(picker._hint, "text")
+        text = picker.hint_label.cget("text")
         assert "目前有 1 个区域" in text
     finally:
         picker.close()

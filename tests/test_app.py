@@ -389,7 +389,7 @@ def test_repeated_hotkeys_during_pick_are_ignored(monkeypatch):
     picks: list[int] = []
     during: list[bool] = []
 
-    def fake_pick(_monitor, _parent):
+    def fake_pick(_monitor, _parent, **_kwargs):
         picks.append(1)
         if len(picks) == 1:                       # 模拟用户框选时又连按热键
             app.perform_select_and_translate()    # Alt+/
@@ -424,7 +424,9 @@ def test_hotkeys_work_again_after_picking(monkeypatch):
     app.translator = DecodingTranslator()
     app.config.ocr.settle_frames = 1
 
-    monkeypatch.setattr("mchanhua.app.pick_region", lambda _m, _p: Region(100, 200, 400, 300))
+    monkeypatch.setattr(
+        "mchanhua.app.pick_region", lambda _m, _p, **_kwargs: Region(100, 200, 400, 300)
+    )
     app.perform_select_and_translate()
     wait_for(app, "result")
 

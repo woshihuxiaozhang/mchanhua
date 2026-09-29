@@ -24,6 +24,8 @@ class PipelineResult:
     warnings: list[str] = field(default_factory=list)
     # 多区域翻译时，每一行来自哪个区域（与 source_lines 平行，单区域时为空）
     line_areas: list[str] = field(default_factory=list)
+    # 模型顺手整理的"整段通顺译文"（没有就用空串，界面按行显示）
+    paragraph: str = ""
 
     @property
     def translated_count(self) -> int:
@@ -96,6 +98,9 @@ def run_from_ocr(
         if target.strip() == source.strip():
             result.warnings.append(f"第 {index + 1} 行疑似未翻译")
     result.warnings.extend(getattr(translator, "warnings", []) or [])
+    paragraph = getattr(translator, "last_paragraph", "") or ""
+    if paragraph:
+        result.paragraph = paragraph
     return result
 
 

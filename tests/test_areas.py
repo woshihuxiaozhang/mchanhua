@@ -231,7 +231,8 @@ def test_pick_areas_can_delete_just_created_area(workdir: Path, monkeypatch):
     app = _app(workdir)
     seen_names: list[list[str]] = []
 
-    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None):
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None,
+                  on_remove_index=None):
         on_accept(Region(10, 20, 100, 50))
         on_accept(Region(200, 300, 120, 60))
         seen_names.append([name for name, _ in existing])
@@ -252,7 +253,8 @@ def test_delete_without_new_area_does_nothing(workdir: Path, monkeypatch):
     app = _app(workdir)
     app.config.regions.add_area(Region(1, 1, 10, 10), name="旧区域")
 
-    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None):
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None,
+                  on_remove_index=None):
         on_remove()                                    # 还没框就按 Delete：删掉最后一个（旧区域）
         return None
 
@@ -271,7 +273,8 @@ def test_delete_removes_previous_session_area_too(workdir: Path, monkeypatch):
     save_config(app.config, Path(app.config_path))
     seen: list[list[str]] = []
 
-    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None):
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None,
+                  on_remove_index=None):
         seen.append([name for name, _ in existing])       # 遮罩上能看到旧区域
         on_remove()                                       # 直接按 Delete
         seen.append([name for name, _ in existing])

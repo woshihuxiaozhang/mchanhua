@@ -92,7 +92,8 @@ def test_select_region_saves_custom_region_to_config_file(workdir: Path, monkeyp
 
     app = _app(workdir)
 
-    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None):
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None,
+                  on_remove_index=None):
         on_accept(Region(11, 22, 333, 444))       # 用户框了一个并按 Enter
         return None                                # 然后结束框选
 
@@ -111,7 +112,8 @@ def test_select_region_cancel_keeps_previous(workdir: Path, monkeypatch):
     app.config.regions.add_area(Region(1, 2, 3, 4), name="区域1")
     monkeypatch.setattr(
         "mchanhua.app.pick_region",
-        lambda _m, _p, existing=None, on_accept=None, on_remove=None: None,   # 直接退出，没框任何东西
+        lambda _m, _p, existing=None, on_accept=None, on_remove=None,
+        on_remove_index=None: None,   # 直接退出，没框任何东西
     )
 
     app.perform_select_region()
@@ -161,7 +163,7 @@ def test_select_and_translate_uses_new_region_without_saving(workdir: Path, monk
     app.config.regions.add_area(Region(1, 2, 3, 4), name="区域1")   # 已有 Alt+V 设定的选区
     monkeypatch.setattr(
         "mchanhua.app.pick_region",
-        lambda _m, _p, on_ready=None: Region(50, 60, 400, 300),
+        lambda _m, _p, **_kwargs: Region(50, 60, 400, 300),
     )
 
     app.perform_select_and_translate()
@@ -193,7 +195,8 @@ def test_select_region_only_does_not_translate(workdir: Path, monkeypatch):
 
     app = _app(workdir)
 
-    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None):
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None,
+                  on_remove_index=None):
         on_accept(Region(7, 8, 90, 100))
         return None
 

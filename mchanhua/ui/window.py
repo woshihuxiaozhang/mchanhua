@@ -151,6 +151,10 @@ class ResultWindow:
         self._history_entries: list[HistoryEntry] = []
         self._height_before_history = 0
         self._user_moved = False          # 用户手动挪过窗口后，不再自动改位置
+        self._user_resized = False        # 用户手动拉过窗口大小后，不再自动改尺寸
+        self._side_by_side = False        # 译文/原文是不是左右并排（横向拉长时）
+        self._expected_size = (0, 0)      # 程序自己设的尺寸，用来分辨"是不是用户改的"
+        self._layout_pending = None
         self.source_visible = True
         self.action_bars: list = []
         self._drag_origin = None
@@ -163,6 +167,7 @@ class ResultWindow:
         self._build_history_panel()
         self._fit_text_areas(1, 1)        # 空闲时只留一行高，不留一大片空白
         self._place_window()
+        self.card.bind("<Configure>", self._on_card_configure)
         # customtkinter 的尺寸换算在窗口映射之后才生效，等它稳定再摆一次，
         # 否则高度是按"还没定型的请求尺寸"算的，底下会多出一块空白。
         self.root.after(250, self._place_window)
@@ -189,6 +194,7 @@ class ResultWindow:
         screen_w = self.root.winfo_screenwidth()      # 物理像素
         screen_h = self.root.winfo_screenheight()
         x, y = resolve_position(ui, (screen_w, screen_h), (physical_w, physical_h))
+        self._expected_size = (physical_w, physical_h)
         self.root.geometry(f"{logical_w}x{logical_h}+{x}+{y}")
         return physical_w, physical_h
 
@@ -220,6 +226,10 @@ class ResultWindow:
         logical_w, logical_h = self._required_size()
         if extra_h:
             logical_h = max(logical_h, int(extra_h))
+        if self._user_resized:
+            # 用户自己拉过大小：只根据当前尺寸调整排版，不再改尺寸
+            self._apply_layout()
+            return (self.root.winfo_width(), self.root.winfo_height())
         scaling = self._scaling()
         physical_w = int(round(logical_w * scaling))
         physical_h = int(round(logical_h * scaling))
@@ -228,8 +238,55 @@ class ResultWindow:
         screen_h = self.root.winfo_screenheight()
         x = max(0, min(x, screen_w - physical_w))
         y = max(0, min(y, screen_h - physical_h))
+        self._expected_size = (physical_w, physical_h)
         self.root.geometry(f"{logical_w}x{logical_h}+{x}+{y}")
         return physical_w, physical_h
+
+    # ---- 排版：横向拉长左右并排，纵向拉宽上下排列 ----
+    def _on_card_configure(self, event) -> None:
+        """窗口尺寸变化（含用户拖边缘）时，重新决定译文/原文怎么排。"""
+
+        if self._layout_pending is not None:
+            try:
+                self.root.after_cancel(self._layout_pending)
+            except Exception:  # pragma: no cover
+                pass
+        width, height = int(event.width), int(event.height)
+        self._layout_pending = self.root.after(120, lambda: self._after_resize(width, height))
+
+    def _after_resize(self, width: int, height: int) -> None:
+        self._layout_pending = None
+        expected_w, expected_h = self._expected_size
+        if abs(width - expected_w) > 8 or abs(height - expected_h) > 8:
+            self._user_resized = True       # 是用户自己拉的，别再被自动尺寸覆盖
+        self._apply_layout()
+
+    def _apply_layout(self) -> None:
+        """横向拉长的窗口：译文和原文左右并排；否则上下排列（默认）。"""
+
+        if self.history_open:
+            return                          # 看历史时不掺和
+        width = max(1, self.card.winfo_width())
+        height = max(1, self.card.winfo_height())
+        side_by_side = width >= height * 1.4
+        if side_by_side == self._side_by_side:
+            return
+        self._side_by_side = side_by_side
+        self.target.pack_forget()
+        self.source_area.pack_forget()
+        if side_by_side:
+            self.target.pack(side="left", fill="both", expand=True, padx=(12, 6), pady=(8, 0))
+            self.source_area.pack(side="left", fill="both", expand=True, padx=(6, 12), pady=(8, 0))
+        elif not self.collapsed:
+            self.target.pack(fill="x", padx=12, pady=(6, 0))
+            self.source_area.pack(fill="x", padx=12)
+        else:
+            self.target.pack(fill="x", padx=12, pady=(6, 0))
+        self._fit_text_areas(
+            max(1, len(self.target.get("1.0", "end").strip().splitlines())),
+            max(1, len(self.source.get("1.0", "end").strip().splitlines())),
+            resize=False,          # 这里已经在处理尺寸了，别再回头调一次（会递归）
+        )
 
     # ---- 顶部标题行 ----
     def _build_title(self) -> None:
@@ -468,7 +525,8 @@ class ResultWindow:
             self.set_status("已折叠（双击标题行可展开）")
         else:
             if not self.history_open:      # 正在看历史时别把原文区又塞回来
-                self.source_area.pack(fill="x", padx=12)
+                self._side_by_side = False          # 强制重新按当前尺寸排版
+                self._apply_layout()
             for bar in self.action_bars:
                 bar.pack(fill="x", padx=12, pady=(8, 8))
             self.set_status("已展开（译文在上，原文在下）")
@@ -537,7 +595,12 @@ class ResultWindow:
         if self.history_open:              # 有新结果就先回到译文视图
             self.toggle_history()
         # 多区域结果按区域分组，插一行「［区域1］」当标题
-        target_lines = self._with_area_labels(result.output_lines, result.line_areas)
+        if getattr(result, "paragraph", ""):
+            # 模型整理过的整段译文更好读；原始行放在下面（按区域标注）方便对照
+            target_lines = [result.paragraph, ""]
+            target_lines += self._with_area_labels(result.output_lines, result.line_areas)
+        else:
+            target_lines = self._with_area_labels(result.output_lines, result.line_areas)
         source_lines = self._with_area_labels(result.source_lines, result.line_areas)
         self.target.delete("1.0", "end")
         self.target.insert("1.0", "\n".join(target_lines))
@@ -557,6 +620,8 @@ class ResultWindow:
         unique_areas = list(dict.fromkeys(areas))
         if unique_areas:
             parts.append(f"{len(unique_areas)} 个区域：{'/'.join(unique_areas)}")
+        if getattr(result, "paragraph", ""):
+            parts.append("已整理成段")
         if result.warnings:
             parts.append(f"提示：{result.warnings[0]}")
         self.set_status(" · ".join(parts))
@@ -577,7 +642,7 @@ class ResultWindow:
             out.append(text)
         return out
 
-    def _fit_text_areas(self, result_lines: int, source_lines: int) -> None:
+    def _fit_text_areas(self, result_lines: int, source_lines: int, resize: bool = True) -> None:
         """译文/原文区跟着内容长高：没有结果时只留一行，不留一大片空白。"""
 
         def units(lines: int, font, max_lines: int) -> int:
@@ -585,9 +650,17 @@ class ResultWindow:
             # 1.6 倍字号：行高 1.5 倍再留一点余量，避免出现滚动条
             return max(1, min(lines, max_lines)) * round(size * 1.6)
 
-        self.target.configure(height=units(result_lines, self.f_result, 5))
-        self.source.configure(height=units(source_lines, self.f_source, 4))
-        self._resize_keep_position()
+        if self._side_by_side:
+            # 左右并排时，两个框都撑到差不多半窗高，不然右边会空一大截
+            scaling = self._scaling()
+            half = max(60, int(self.card.winfo_height() / scaling * 0.55))
+            self.target.configure(height=half)
+            self.source.configure(height=half)
+        else:
+            self.target.configure(height=units(result_lines, self.f_result, 5))
+            self.source.configure(height=units(source_lines, self.f_source, 4))
+        if resize and not self._user_resized:
+            self._resize_keep_position()
 
     def on_poll(self) -> None:
         if self.heartbeat is not None:

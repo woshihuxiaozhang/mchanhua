@@ -47,6 +47,7 @@ class CachingTranslator:
         self.name = f"{inner.name}+cache"
         self.hits = 0
         self.misses = 0
+        self.last_paragraph = ""
 
     def translate_lines(self, lines: Sequence[str]) -> list[str]:
         sources = list(lines)
@@ -67,6 +68,7 @@ class CachingTranslator:
             for (index, source), target in zip(pending, translated):
                 result[index] = target
                 self.cache.put(source, target, self.model, self.prompt_version)
+            self.last_paragraph = getattr(self.inner, "last_paragraph", "") or ""
 
         return [value if value is not None else source for value, source in zip(result, sources)]
 
@@ -96,6 +98,7 @@ def create_translator(
         temperature=config.temperature,
         glossary=merged_glossary,
         provider=config.provider,
+        humanize=config.humanize,
     )
     if not config.cache_enabled:
         return engine

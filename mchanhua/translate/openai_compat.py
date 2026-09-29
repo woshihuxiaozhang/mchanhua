@@ -18,7 +18,7 @@ from mchanhua.translate.placeholders import (
     strip_leftover_sentinels,
 )
 
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 
 SYSTEM_PROMPT = """你是 Minecraft 模组与整合包的汉化译者，负责把游戏里的英文翻译成简体中文。
 
@@ -38,6 +38,7 @@ SYSTEM_PROMPT = """你是 Minecraft 模组与整合包的汉化译者，负责�
    遇到明显是识别错误的单词，按最接近的常见英文词理解并翻译，不要原样返回英文；
    只有确定是人名、玩家 ID、命令或代码时才保留原文。
 6. 使用 Minecraft 中文社区的通行译法。
+7. 如果下面给了【整段整理】要求，就再补一个 paragraph 字段（整段通顺译文）。
 
 【风格示例】
 - "Durability" → "耐久"
@@ -49,6 +50,17 @@ SYSTEM_PROMPT = """你是 Minecraft 模组与整合包的汉化译者，负责�
 """
 
 GLOSSARY_PREFIX = "固定译法（必须遵守）："
+
+# 追加在提示词末尾：让模型额外给一段"整理通顺"的整段译文
+HUMANIZE_NOTE = """
+
+【整段整理】（paragraph 字段）
+- 屏幕 OCR 经常把一句话切成好几行，或者混进无关的碎片。请把它们**整理成自然通顺的整段中文**：
+  被切断的句子接回去、语序按中文习惯调整、明显的 OCR 噪音（乱码、重复片段）可以去掉。
+- **只能整理，不许加戏**：不得增加原文没有的信息，也不能漏掉有意义的内容。
+- 如果这些行本来就是清单式的短条目（物品名、按钮名），保持简短罗列就好，别硬凑成句子。
+- 输出仍是同一个 JSON 对象，多一个 paragraph 字段：{"paragraph": "……", "lines": [...]}。
+"""
 
 CORRECTION_NOTE = """
 
@@ -106,6 +118,7 @@ class OpenAICompatibleTranslator:
         glossary: dict[str, str] | None = None,
         client: httpx.Client | None = None,
         provider: str = "custom",
+        humanize: bool = True,
         retry_attempts: int = 3,
         retry_backoff: float = 0.6,
     ) -> None:
@@ -118,6 +131,8 @@ class OpenAICompatibleTranslator:
         self.provider = provider
         self.glossary = dict(glossary or {})
         self.prompt_version = PROMPT_VERSION
+        self.humanize = bool(humanize)
+        self.last_paragraph = ""          # 上一步"整理成段"的结果（没有就是空）
         self._client = client or httpx.Client(timeout=timeout)
         self.retry_attempts = max(1, int(retry_attempts))
         self.retry_backoff = max(0.0, float(retry_backoff))
@@ -132,6 +147,7 @@ class OpenAICompatibleTranslator:
         if not lines:
             return []
         self.warnings = []
+        self.last_paragraph = ""
         sources = list(lines)
         result = self._request(sources)
 
@@ -151,7 +167,11 @@ class OpenAICompatibleTranslator:
     def _request(self, lines: list[str], correction: bool = False) -> list[str]:
         protected, tables = protect_lines(lines)
         numbered = "\n".join(f"{index}. {text}" for index, text in enumerate(protected))
-        system_prompt = build_system_prompt(self.glossary) + (CORRECTION_NOTE if correction else "")
+        system_prompt = build_system_prompt(self.glossary)
+        if self.humanize and not correction:
+            system_prompt += HUMANIZE_NOTE
+        if correction:
+            system_prompt += CORRECTION_NOTE
 
         payload: dict[str, Any] = {
             "model": self.model,
@@ -219,6 +239,11 @@ class OpenAICompatibleTranslator:
         items = parsed.get("lines") if isinstance(parsed, dict) else None
         if not isinstance(items, list):
             raise TranslationError(f"模型返回缺少 lines 字段：{content[:300]}")
+
+        if isinstance(parsed, dict):
+            paragraph = parsed.get("paragraph")
+            if isinstance(paragraph, str) and paragraph.strip():
+                self.last_paragraph = paragraph.strip()      # 模型顺手给的"整理成段"版本
 
         result = list(sources)
         seen: set[int] = set()

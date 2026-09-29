@@ -100,6 +100,8 @@ class TranslateConfig:
     timeout: float = 30.0
     temperature: float = 0.0
     cache_enabled: bool = True
+    # 让模型额外给一段"整理通顺"的整段译文（把 OCR 切碎的行接回去、调语序）
+    humanize: bool = True
 
 
 @dataclass

@@ -58,6 +58,7 @@ class RegionPicker:
         existing: list[tuple[str, Region]] | None = None,
         on_accept=None,
         on_remove=None,
+        on_remove_index=None,
     ) -> None:
         self.physical_screen = physical_screen
         # 注意：这里必须**共享**同一个列表对象——框选过程中调用方会往里追加新区域，
@@ -65,6 +66,7 @@ class RegionPicker:
         self.existing = existing if existing is not None else []
         self.on_accept = on_accept
         self.on_remove = on_remove
+        self.on_remove_index = on_remove_index
         self.accepted = 0
         self.result: Region | None = None
         self.box: list[int] | None = None              # 逻辑坐标 l, t, r, b
@@ -95,11 +97,7 @@ class RegionPicker:
         self.root.configure(bg="black")
         self.canvas = tk.Canvas(self.root, bg="black", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        self._hint = self.canvas.create_text(
-            12, 10, anchor="nw", fill="#e8e8e8", font=("Microsoft YaHei UI", 13),
-            text="",
-            tags=("hint",),
-        )
+        self._build_hint_window()
         self._set_hint()
         self._draw_existing()
         # 一开始就把框摆在屏幕中间，用户一按热键就能看到
@@ -113,6 +111,24 @@ class RegionPicker:
         if self.box is None:
             return
         self.canvas.create_rectangle(*self.box, outline="#5ac8fa", width=3, tags=("box",))
+
+    def _build_hint_window(self) -> None:
+        """提示单独放一个**不透明**的小窗口：遮罩整体是半透明的，画在遮罩上的白底也会跟着透明。
+
+        这个窗口不抢焦点（overrideredirect），只贴在左上角显示。
+        """
+
+        hint = tk.Toplevel(self.root)
+        hint.overrideredirect(True)
+        hint.attributes("-topmost", True)
+        hint.configure(bg="#FFFFFF")
+        self.hint_root = hint
+        self.hint_label = tk.Label(
+            hint, text="", bg="#FFFFFF", fg="#1B1B1B", justify="left",
+            font=("Microsoft YaHei UI", 13), padx=12, pady=8,
+        )
+        self.hint_label.pack()
+        hint.geometry("+16+16")
 
     def _draw_existing(self) -> None:
         """把已经保存的区域画在遮罩上：浅色描边 + 名字，避免重复框。"""
@@ -128,10 +144,18 @@ class RegionPicker:
                 logical.x, logical.y, logical.right, logical.bottom,
                 outline="#f2b544", width=2, dash=(6, 4), tags=("existing",),
             )
-            self.canvas.create_text(
-                logical.x + 4, logical.y + 4, anchor="nw", fill="#f2b544",
-                font=("Microsoft YaHei UI", 12), text=f"{index}. {name}", tags=("existing",),
+            label = self.canvas.create_text(
+                logical.x + 6, logical.y + 6, anchor="nw", fill="#8A5A00",
+                font=("Microsoft YaHei UI", 12), text=f"{index}. {name}（按 {index} 删）",
+                tags=("existing",),
             )
+            box = self.canvas.bbox(label)
+            if box is not None:
+                backdrop = self.canvas.create_rectangle(
+                    box[0] - 4, box[1] - 3, box[2] + 4, box[3] + 3,
+                    fill="#FFF8E6", outline="#E0C070", tags=("existing",),
+                )
+                self.canvas.tag_lower(backdrop, label)
 
     def _set_hint(self, extra: str = "") -> None:
         lines = [
@@ -142,13 +166,16 @@ class RegionPicker:
             lines.append("Backspace / Esc 结束框选")
             if self.on_remove is not None:
                 lines.append("Delete 删掉最后一个区域（刚框的、以前的都行）")
+            if self.on_remove_index is not None:
+                lines.append("数字键 1~9 删掉对应编号的区域")
         else:
             lines.append("Backspace / Esc 取消")
         if self.existing:
             lines.append(f"目前有 {len(self.existing)} 个区域（黄色虚线框）")
         if extra:
             lines.append(extra)
-        self.canvas.itemconfigure(self._hint, text="\n".join(lines))
+        self.hint_label.configure(text="\n".join(lines))
+        self.hint_root.geometry("+16+16")
 
     # ---- 输入 ----
     def _install_hook(self) -> None:
@@ -221,6 +248,12 @@ class RegionPicker:
             return
         if name in ("delete", "kp delete") and self.on_remove is not None:
             self.on_remove()                  # 谁来删由调用方决定（还要同步配置文件）
+            self._draw_existing()
+            self._set_hint()
+            return
+        if (self.on_remove_index is not None and len(name) == 1 and name.isdigit()
+                and name != "0"):
+            self.on_remove_index(int(name))   # 数字键：删掉指定编号的区域
             self._draw_existing()
             self._set_hint()
             return
@@ -363,6 +396,10 @@ class RegionPicker:
             self.root.destroy()
         except Exception:  # pragma: no cover
             pass
+        try:
+            self.hint_root.destroy()
+        except Exception:  # pragma: no cover
+            pass
 
     def run(self) -> Region | None:
         self._install_hook()
@@ -382,6 +419,7 @@ def pick_region(
     existing: list[tuple[str, Region]] | None = None,
     on_accept=None,
     on_remove=None,
+    on_remove_index=None,
 ) -> Region | None:
     """弹出遮罩框选，返回物理像素区域。
 
@@ -391,7 +429,8 @@ def pick_region(
     """
 
     picker = RegionPicker(
-        physical_screen, parent, existing=existing, on_accept=on_accept, on_remove=on_remove
+        physical_screen, parent, existing=existing, on_accept=on_accept,
+        on_remove=on_remove, on_remove_index=on_remove_index,
     )
     if on_ready is not None:                            # pragma: no cover - 测试用
         on_ready(picker)
