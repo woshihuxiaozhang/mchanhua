@@ -602,11 +602,13 @@ class Application:
         """连续框选多个区域并保存：每按一次 Enter 存一个，Backspace/Esc 结束。"""
 
         saved: list[str] = []
+        shown: list[tuple[str, Region]] = self._existing_areas()   # 遮罩上要画的（真实名字）
 
         def handle(region: Region) -> None:
             name = self.config.regions.add_area(region)
             saved.append(name)
             self.last_region = region
+            shown.append((name, region))
             if self._save_config():
                 self.window.set_status(
                     f"已保存「{name}」{region.to_csv()}（可继续框，Backspace/Esc 结束）"
@@ -614,11 +616,25 @@ class Application:
             else:
                 get_logger().warning("区域保存失败：%s", region.to_csv())
 
+        def handle_remove() -> None:
+            """Delete：撤掉刚框的那个区域（框错了不用退出重来）。"""
+
+            if not saved:
+                self.window.set_status("还没框过新区域，没有可删除的")
+                return
+            name = saved.pop()
+            self.config.regions.remove_area(name)
+            shown[:] = [(item, box) for item, box in shown if item != name]
+            self._save_config()
+            self.window.set_status(f"已删除「{name}」")
+            get_logger().info("框选时删除了区域：%s", name)
+
         pick_region(
             self.grabber.primary_monitor(),
             self.window.root,
-            existing=self._existing_areas(),
+            existing=shown,
             on_accept=handle,
+            on_remove=handle_remove,
         )
         return saved
 

@@ -1,5 +1,7 @@
 """框选遮罩：不抢焦点（游戏不弹菜单）、键盘框选、鼠标框选、确认/取消。"""
 
+import time
+
 import pytest
 
 tk = pytest.importorskip("tkinter")
@@ -38,7 +40,17 @@ def _finish(picker, root):
 def test_overlay_does_not_take_focus():
     """关键回归：遮罩不能抢焦点，否则游戏会失焦弹菜单挡住字幕。"""
 
-    picker = RegionPicker(SCREEN, None)
+    picker = None
+    last: Exception | None = None
+    for _ in range(2):          # 这台机器上 Tk 初始化偶尔读不到 ttk 脚本，重试一次更稳
+        try:
+            picker = RegionPicker(SCREEN, None)
+            break
+        except tk.TclError as exc:
+            last = exc
+            time.sleep(0.2)
+    if picker is None:          # pragma: no cover - 无图形环境
+        pytest.skip(f"没有可用的图形环境：{last}")
     try:
         assert picker.root.overrideredirect() is True      # 无边框、不激活
         assert picker.root.grab_current() is None          # 没有独占输入
@@ -230,9 +242,16 @@ def test_accept_mode_keeps_overlay_open_and_collects_regions():
     """连续模式：每按一次 Enter 交出一个区域，遮罩不关，可以接着框下一个。"""
 
     taken: list[Region] = []
+    shown: list[tuple[str, Region]] = []          # 调用方负责往这里追加真实名字
     picker, root = _picker()
     try:
-        picker.on_accept = taken.append
+        picker.existing = shown
+
+        def accept(region):
+            taken.append(region)
+            shown.append((f"区域{len(taken)}", region))
+
+        picker.on_accept = accept
         screen = Region(0, 0, 2560, 1440)
         picker.physical_screen = screen
 
@@ -250,6 +269,44 @@ def test_accept_mode_keeps_overlay_open_and_collects_regions():
         picker.handle_key("backspace")         # 结束
         assert picker._closed is True
         assert picker.result is None
+        assert [name for name, _ in shown] == ["区域1", "区域2"]   # 遮罩上显示真名
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_delete_key_removes_the_last_area():
+    """Delete 键：撤掉刚框的那个区域（遮罩上提示里也写了）。"""
+
+    removed: list[int] = []
+    shown: list[tuple[str, Region]] = []
+    picker, root = _picker()
+    try:
+        picker.existing = shown
+        picker.on_accept = lambda region: shown.append((f"区域{len(shown) + 1}", region))
+        picker.on_remove = lambda: (shown.pop(), removed.append(1))
+        picker.physical_screen = Region(0, 0, 2560, 1440)
+
+        picker.handle_key("enter")
+        assert len(shown) == 1
+
+        picker.handle_key("delete")
+        assert removed == [1]
+        assert shown == []
+        assert picker._closed is False           # 遮罩还在，可以继续框
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_hint_mentions_delete_and_area_names():
+    picker, root = _picker()
+    try:
+        picker.on_accept = lambda region: None
+        picker.on_remove = lambda: None
+        picker._set_hint()
+        text = picker.canvas.itemcget(picker._hint, "text")
+        assert "Delete" in text and "结束框选" in text
     finally:
         picker.close()
         root.destroy()

@@ -484,8 +484,9 @@ class SettingsWindow:
         page = self._make_page("选区")
         ctk.CTkLabel(
             page,
-            text="Ctrl+Alt 会一次翻译所有勾选的区域（整屏只抓一次、OCR 一次）。"
-                 "新增区域：在游戏里按 Alt+V 连续框选。",
+            text="Ctrl+Alt 会一次翻译所有勾选的区域（整屏只抓一次、OCR 一次）。\n"
+                 "新增区域：在游戏里按 Alt+V 连续框选（Enter 存一个，Delete 撤掉上一个）。\n"
+                 "删除区域：下面每一行右边的「删除」按钮；勾选框只控制「要不要翻译它」。",
             font=self.f_small, text_color=LABEL, anchor="w", justify="left", wraplength=620,
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(4, 8))
 
@@ -510,8 +511,11 @@ class SettingsWindow:
         config = self.collect_areas_only()
         names = config.regions.area_names()
         if not names:
-            ctk.CTkLabel(self._area_rows, text="还没有区域：在游戏里按 Alt+V 框一个试试",
-                         font=self.f_label, text_color=LABEL).pack(anchor="w", pady=8)
+            ctk.CTkLabel(
+                self._area_rows,
+                text="还没有区域。在游戏里按 Alt+V 框一个：Enter 保存，Backspace/Esc 结束。",
+                font=self.f_label, text_color=LABEL,
+            ).pack(anchor="w", pady=8)
             return
         for name in names:
             row = ctk.CTkFrame(self._area_rows, corner_radius=6, fg_color=FIELD)

@@ -33,7 +33,8 @@ DEFAULT_BOX = (520, 260)   # 初始框尺寸（大致能罩住一行字幕）
 MOUSE_IDLE_LIMIT = 0.6
 MOVE_KEYS = {"up": "up", "down": "down", "left": "left", "right": "right"}
 CONFIRM_KEYS = {"enter", "return", "kp enter", "kp_enter"}
-CANCEL_KEYS = {"backspace", "esc", "escape", "delete"}
+# 注意：Delete 不在这里——它在"连续框选"里是"撤掉上一个区域"
+CANCEL_KEYS = {"backspace", "esc", "escape"}
 
 
 def _window_size(root: tk.Misc) -> tuple[int, int]:
@@ -56,10 +57,12 @@ class RegionPicker:
         parent: tk.Misc | None = None,
         existing: list[tuple[str, Region]] | None = None,
         on_accept=None,
+        on_remove=None,
     ) -> None:
         self.physical_screen = physical_screen
         self.existing = list(existing or [])
         self.on_accept = on_accept
+        self.on_remove = on_remove
         self.accepted = 0
         self.result: Region | None = None
         self.box: list[int] | None = None              # 逻辑坐标 l, t, r, b
@@ -133,11 +136,14 @@ class RegionPicker:
             "拖动鼠标框选 ｜ 方向键移动框 ｜ Ctrl+方向键缩放 ｜ Enter 确认",
             "按 M 可关掉鼠标拖框（游戏里鼠标被锁时请用方向键）",
         ]
-        lines.append(
-            "Backspace / Esc 结束框选" if self.on_accept else "Backspace / Esc 取消"
-        )
+        if self.on_accept:
+            lines.append("Backspace / Esc 结束框选")
+            if self.on_remove is not None:
+                lines.append("Delete 删掉上一个框的区域")
+        else:
+            lines.append("Backspace / Esc 取消")
         if self.accepted:
-            lines.append(f"已框住 {self.accepted} 个区域（黄色虚线是已保存的）")
+            lines.append(f"已框住 {self.accepted} 个区域（黄色虚线框是已保存的）")
         if extra:
             lines.append(extra)
         self.canvas.itemconfigure(self._hint, text="\n".join(lines))
@@ -210,6 +216,13 @@ class RegionPicker:
             self._set_hint(
                 "鼠标拖框已关闭（只用键盘）" if not self.mouse_enabled else "鼠标拖框已打开"
             )
+            return
+        if name in ("delete", "kp delete") and self.on_remove is not None:
+            self.on_remove()                  # 谁来删由调用方决定（还要同步配置文件）
+            if self.accepted:
+                self.accepted -= 1
+            self._draw_existing()
+            self._set_hint()
             return
         if name not in MOVE_KEYS:
             return
@@ -316,7 +329,6 @@ class RegionPicker:
         if self.on_accept is not None:
             # 连续框选：交出去、复位框，遮罩留着继续用
             self.accepted += 1
-            self.existing = [*self.existing, (f"第 {self.accepted} 个", region)]
             self.on_accept(region)
             self._reset_box()
             self._draw_existing()
@@ -369,6 +381,7 @@ def pick_region(
     on_ready=None,
     existing: list[tuple[str, Region]] | None = None,
     on_accept=None,
+    on_remove=None,
 ) -> Region | None:
     """弹出遮罩框选，返回物理像素区域。
 
@@ -377,7 +390,9 @@ def pick_region(
     （每次确认回调一次、遮罩不关），此时返回值恒为 None。
     """
 
-    picker = RegionPicker(physical_screen, parent, existing=existing, on_accept=on_accept)
+    picker = RegionPicker(
+        physical_screen, parent, existing=existing, on_accept=on_accept, on_remove=on_remove
+    )
     if on_ready is not None:                            # pragma: no cover - 测试用
         on_ready(picker)
     return picker.run()

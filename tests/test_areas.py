@@ -222,6 +222,46 @@ def test_window_shows_area_titles():
         window.root.destroy()
 
 
+# ---- 框选时的撤销（Delete）与真实区域名 ----
+
+
+def test_pick_areas_can_delete_just_created_area(workdir: Path, monkeypatch):
+    """Alt+V 框选时：Enter 存一个、Delete 撤掉刚框的那个，遮罩上显示的是真实名字。"""
+
+    app = _app(workdir)
+    seen_names: list[list[str]] = []
+
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None):
+        on_accept(Region(10, 20, 100, 50))
+        on_accept(Region(200, 300, 120, 60))
+        seen_names.append([name for name, _ in existing])
+
+        on_remove()                                    # Delete：撤掉第二个
+        seen_names.append([name for name, _ in existing])
+        return None
+
+    monkeypatch.setattr("mchanhua.app.pick_region", fake_pick)
+    app.perform_select_region()
+
+    assert seen_names == [["区域1", "区域2"], ["区域1"]]      # 名字是真名，不是"第 2 个"
+    assert app.config.regions.area_names() == ["区域1"]
+    assert load_config(Path(app.config_path)).regions.area_names() == ["区域1"]   # 删除也落盘
+
+
+def test_delete_without_new_area_does_nothing(workdir: Path, monkeypatch):
+    app = _app(workdir)
+    app.config.regions.add_area(Region(1, 1, 10, 10), name="旧区域")
+
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None):
+        on_remove()                                    # 还没框就按 Delete
+        return None
+
+    monkeypatch.setattr("mchanhua.app.pick_region", fake_pick)
+    app.perform_select_region()
+
+    assert app.config.regions.area_names() == ["旧区域"]        # 老区域不会被误删
+
+
 # ---- 设置里的"选区"页 ----
 
 
