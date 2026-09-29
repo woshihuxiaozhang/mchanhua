@@ -24,6 +24,7 @@ from mchanhua.geometry import (
     normalize_drag,
     physical_to_logical,
 )
+from mchanhua.config import MAX_AREAS
 
 KEY_STEP = 20          # 方向键每次移动多少逻辑像素
 KEY_STEP_FINE = 4      # 按住 Shift 时的小步长
@@ -35,6 +36,16 @@ MOVE_KEYS = {"up": "up", "down": "down", "left": "left", "right": "right"}
 CONFIRM_KEYS = {"enter", "return", "kp enter", "kp_enter"}
 # 注意：Delete 不在这里——它在"连续框选"里是"撤掉上一个区域"
 CANCEL_KEYS = {"backspace", "esc", "escape"}
+
+# 提示按用途分组，一组一行；每个提示是一个带边框的小标签
+HINT_ROWS_SINGLE = (
+    ("拖动鼠标框选", "方向键移动框", "Ctrl+方向键缩放", "Enter 确认"),
+    ("Backspace 或 Esc 取消",),
+)
+HINT_ROWS_MULTI = (
+    ("拖动鼠标框选", "方向键移动框", "Ctrl+方向键缩放", "Enter 确认"),
+    ("Backspace 或 Esc 结束框选", "Delete 删最后一个区域", "数字键 1~9 删对应区域"),
+)
 
 
 def _window_size(root: tk.Misc) -> tuple[int, int]:
@@ -113,22 +124,44 @@ class RegionPicker:
         self.canvas.create_rectangle(*self.box, outline="#5ac8fa", width=3, tags=("box",))
 
     def _build_hint_window(self) -> None:
-        """提示单独放一个**不透明**的小窗口：遮罩整体是半透明的，画在遮罩上的白底也会跟着透明。
+        """提示单独放一个**不透明**的小窗（遮罩整体半透明，画在遮罩上的白底会跟着透明）。
 
-        这个窗口不抢焦点（overrideredirect），只贴在左上角显示。
+        每条提示是一个白底 + 实线边框的小标签，按用途分行排好，贴在左上角。
         """
 
         hint = tk.Toplevel(self.root)
         hint.overrideredirect(True)
         hint.attributes("-topmost", True)
-        hint.configure(bg="#FFFFFF")
+        hint.configure(bg="#EDEFF3")
         self.hint_root = hint
-        self.hint_label = tk.Label(
-            hint, text="", bg="#FFFFFF", fg="#1B1B1B", justify="left",
-            font=("Microsoft YaHei UI", 13), padx=12, pady=8,
+        wrapper = tk.Frame(hint, bg="#EDEFF3", bd=1, relief="solid")
+        wrapper.pack()
+
+        self._hint_font = ("Microsoft YaHei UI", 12)
+        self._hint_labels: list[tk.Label] = []
+        rows = HINT_ROWS_MULTI if self.on_accept is not None else HINT_ROWS_SINGLE
+        for row_index, items in enumerate(rows):
+            row = tk.Frame(wrapper, bg="#EDEFF3")
+            row.pack(anchor="w", padx=6, pady=(6 if row_index == 0 else 4, 0))
+            for text in items:
+                chip = tk.Label(
+                    row, text=text, bg="#FFFFFF", fg="#1B1B1B", bd=1, relief="solid",
+                    padx=8, pady=3, font=self._hint_font,
+                )
+                chip.pack(side="left", padx=(0, 4))
+                self._hint_labels.append(chip)
+
+        self.hint_status = tk.Label(
+            wrapper, text="", bg="#EDEFF3", fg="#3C4043", anchor="w", justify="left",
+            font=self._hint_font, padx=8, pady=6,
         )
-        self.hint_label.pack()
+        self.hint_status.pack(fill="x")
         hint.geometry("+16+16")
+
+    def hint_texts(self) -> list[str]:
+        """当前提示面板里所有小标签的文字（测试与排查用）。"""
+
+        return [label.cget("text") for label in getattr(self, "_hint_labels", [])]
 
     def _draw_existing(self) -> None:
         """把已经保存的区域画在遮罩上：浅色描边 + 名字，避免重复框。"""
@@ -158,23 +191,17 @@ class RegionPicker:
                 self.canvas.tag_lower(backdrop, label)
 
     def _set_hint(self, extra: str = "") -> None:
-        lines = [
-            "拖动鼠标框选 ｜ 方向键移动框 ｜ Ctrl+方向键缩放 ｜ Enter 确认",
-            "按 M 可关掉鼠标拖框（游戏里鼠标被锁时请用方向键）",
-        ]
-        if self.on_accept:
-            lines.append("Backspace / Esc 结束框选")
-            if self.on_remove is not None:
-                lines.append("Delete 删掉最后一个区域（刚框的、以前的都行）")
-            if self.on_remove_index is not None:
-                lines.append("数字键 1~9 删掉对应编号的区域")
-        else:
-            lines.append("Backspace / Esc 取消")
-        if self.existing:
-            lines.append(f"目前有 {len(self.existing)} 个区域（黄色虚线框）")
+        """状态行：已经框了几个区域 + 鼠标锁定提示 + 临时提醒。"""
+
+        parts: list[str] = []
+        if self.on_accept is not None:
+            parts.append(f"已有 {len(self.existing)}/{MAX_AREAS} 个区域（黄色虚线框）")
+        elif self.existing:
+            parts.append(f"{len(self.existing)} 个区域（黄色虚线框）")
+        parts.append("游戏里鼠标被锁住时按 M 关掉鼠标拖框，用方向键框")
         if extra:
-            lines.append(extra)
-        self.hint_label.configure(text="\n".join(lines))
+            parts.append(extra)
+        self.hint_status.configure(text="　".join(parts))
         self.hint_root.geometry("+16+16")
 
     # ---- 输入 ----
@@ -361,8 +388,12 @@ class RegionPicker:
         region = logical_to_physical(logical, _window_size(self.root), self.physical_screen)
         if self.on_accept is not None:
             # 连续框选：交出去、复位框，遮罩留着继续用
+            accepted = self.on_accept(region)
+            if accepted is False:
+                # 调用方没收下（例如已经到数量上限）：不复位框，提示一下
+                self._set_hint(f"最多只能有 {MAX_AREAS} 个区域，先删掉一个再框")
+                return
             self.accepted += 1
-            self.on_accept(region)
             self._reset_box()
             self._draw_existing()
             self._set_hint()

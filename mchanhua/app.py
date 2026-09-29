@@ -11,7 +11,7 @@ from PIL import Image
 
 from mchanhua.autoregion import capture_region_for, filter_area_lines, filter_capture
 from mchanhua.capture import create_grabber, frames_similar, grab_clipboard_image, grab_screen
-from mchanhua.config import CUSTOM_REGION_KEY, Config, save_config
+from mchanhua.config import CUSTOM_REGION_KEY, MAX_AREAS, Config, save_config
 from mchanhua.debugdump import dump_last_run
 from mchanhua.diagnostics import UiWatchdog, make_dump_all_threads
 from mchanhua.geometry import Region, enable_dpi_awareness, follow_cursor_region
@@ -635,8 +635,14 @@ class Application:
         saved: list[str] = []
         shown: list[tuple[str, Region]] = self._existing_areas()   # 遮罩上要画的（真实名字）
 
-        def handle(region: Region) -> None:
+        def handle(region: Region) -> bool | None:
             name = self.config.regions.add_area(region)
+            if name is None:
+                # 到上限了：不保存、也不复位框，让用户先删一个
+                self.window.set_status(
+                    f"最多只能保存 {MAX_AREAS} 个区域，按数字键或 Delete 删掉一个再框"
+                )
+                return False
             saved.append(name)
             self.last_region = region
             shown.append((name, region))
@@ -646,6 +652,7 @@ class Application:
                 )
             else:
                 get_logger().warning("区域保存失败：%s", region.to_csv())
+            return True
 
         def handle_remove() -> None:
             """Delete：删掉最后一个区域（刚框的、以前存的都能删，像撤销一样）。"""

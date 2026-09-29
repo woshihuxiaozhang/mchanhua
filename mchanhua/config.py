@@ -177,9 +177,14 @@ class RegionsConfig:
             index += 1
         return f"区域{index}"
 
-    def add_area(self, region: Region, name: str | None = None) -> str:
-        """保存一个新区域（默认按顺序命名），并把它设为启用。"""
+    def add_area(self, region: Region, name: str | None = None) -> str | None:
+        """保存一个新区域（默认按顺序命名），并把它设为启用。
 
+        已经到上限（MAX_AREAS）时返回 None，让调用方提示用户先删一个。
+        """
+
+        if len(self.fixed) >= MAX_AREAS:
+            return None
         label = name or self.next_area_name()
         self.fixed[label] = region.to_csv()
         if label not in self.areas:
@@ -227,6 +232,8 @@ class RegionsConfig:
 CUSTOM_REGION_KEY = "custom"
 # 第一个区域的固定名字（老的"自定义选区"迁移过来就叫这个）
 FIRST_AREA_NAME = "区域1"
+# 最多保存几个区域（用户要求：5 个够用，再多屏幕上也不好点）
+MAX_AREAS = 5
 
 
 @dataclass

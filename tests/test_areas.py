@@ -7,7 +7,7 @@ from PIL import Image
 
 from mchanhua.app import Application
 from mchanhua.autoregion import filter_area_lines
-from mchanhua.config import Config, load_config, save_config
+from mchanhua.config import MAX_AREAS, Config, load_config, save_config
 from mchanhua.geometry import Region
 from mchanhua.ocr.base import OcrLine, OcrResult
 from mchanhua.pipeline import PipelineResult
@@ -352,6 +352,44 @@ def test_clear_on_exit_can_be_turned_off(workdir: Path):
     assert app.config.regions.area_names() == ["要留下的区域"]
     assert app.clear_areas_on_exit() == 0
     assert app.config.regions.area_names() == ["要留下的区域"]
+
+
+# ---- 数量上限：最多 5 个 ----
+
+
+def test_area_limit_is_five():
+    config = Config()
+    for index in range(MAX_AREAS):
+        assert config.regions.add_area(Region(index * 10, 0, 20, 20)) is not None
+
+    assert len(config.regions.area_names()) == MAX_AREAS
+    assert config.regions.add_area(Region(999, 999, 20, 20)) is None      # 到顶了，不再收
+    assert len(config.regions.area_names()) == MAX_AREAS
+
+    config.regions.remove_area("区域1")                                   # 删一个又能加
+    assert config.regions.add_area(Region(999, 999, 20, 20)) is not None
+
+
+def test_pick_areas_refuses_more_than_limit(workdir: Path, monkeypatch):
+    """框选时如果已经满 5 个，按 Enter 不收，遮罩会提示先删一个。"""
+
+    app = _app(workdir)
+    for index in range(MAX_AREAS):
+        app.config.regions.add_area(Region(index * 10, 0, 20, 20))
+
+    outcomes: list[object] = []
+
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None, on_remove=None,
+                  on_remove_index=None):
+        outcomes.append(on_accept(Region(500, 500, 100, 100)))
+        return None
+
+    monkeypatch.setattr("mchanhua.app.pick_region", fake_pick)
+    app.perform_select_region()
+
+    assert outcomes == [False]                                            # 明确拒绝
+    assert len(app.config.regions.area_names()) == MAX_AREAS
+    assert any("最多" in status for status in app.window.statuses)
 
 
 # ---- 设置里的"选区"页 ----

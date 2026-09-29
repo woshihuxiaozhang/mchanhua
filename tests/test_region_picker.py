@@ -28,6 +28,15 @@ def _picker():
     return picker, root
 
 
+def _root():
+    try:
+        root = tk.Tk()
+    except tk.TclError as exc:  # pragma: no cover - 无图形环境
+        pytest.skip(f"没有可用的图形环境：{exc}")
+    root.withdraw()
+    return root
+
+
 def _finish(picker, root):
     """跑完一次框选：内部靠 after 轮询，这里手动把队列喂进去。"""
     try:
@@ -300,13 +309,15 @@ def test_delete_key_removes_the_last_area():
 
 
 def test_hint_mentions_delete_and_area_names():
-    picker, root = _picker()
+    root = _root()
+    picker = RegionPicker(
+        SCREEN, root, on_accept=lambda region: None,
+        on_remove=lambda: None, on_remove_index=lambda index: None,
+    )
     try:
-        picker.on_accept = lambda region: None
-        picker.on_remove = lambda: None
-        picker._set_hint()
-        text = picker.hint_label.cget("text")
+        text = " ".join(picker.hint_texts())
         assert "Delete" in text and "结束框选" in text
+        assert "数字键" in text
     finally:
         picker.close()
         root.destroy()
@@ -341,8 +352,8 @@ def test_existing_list_is_shared_with_the_caller():
 
         items = picker.canvas.find_withtag("existing")
         assert len(items) >= 2                                   # 黄线框 + 名字立刻出现
-        text = picker.hint_label.cget("text")
-        assert "目前有 1 个区域" in text
+        status = picker.hint_status.cget("text")
+        assert "已有 1/5 个区域" in status
     finally:
         picker.close()
         root.destroy()

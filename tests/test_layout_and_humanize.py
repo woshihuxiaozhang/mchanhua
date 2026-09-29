@@ -37,11 +37,15 @@ def test_hint_has_white_backdrop():
     picker = RegionPicker(SCREEN, root)
     try:
         picker._set_hint()
-        # 提示是不透明的独立小窗（遮罩整体半透明，画在遮罩上的白底会跟着透明）
+        # 提示是独立的不透明小窗；每条提示是一个白底 + 实线边框的小标签
         assert picker.hint_root.winfo_exists()
-        assert picker.hint_root.cget("bg").lower() == "#ffffff"
-        assert picker.hint_label.cget("bg").lower() == "#ffffff"
-        assert picker.hint_label.cget("text")
+        chips = picker._hint_labels
+        assert chips, "提示应该拆成一个个小标签"
+        for chip in chips:
+            assert chip.cget("bg").lower() == "#ffffff"      # 不透明白底
+            assert int(chip.cget("bd")) >= 1                 # 不透明边框
+            assert str(chip.cget("relief")) == "solid"
+            assert chip.cget("text")
     finally:
         picker.close()
         root.destroy()
@@ -73,13 +77,12 @@ def test_number_key_removes_that_area():
 
 def test_number_key_hint_is_shown():
     root = _root()
-    picker = RegionPicker(SCREEN, root)
+    picker = RegionPicker(
+        SCREEN, root, on_accept=lambda region: None,
+        on_remove=lambda: None, on_remove_index=lambda index: None,
+    )
     try:
-        picker.on_accept = lambda region: None
-        picker.on_remove = lambda: None
-        picker.on_remove_index = lambda index: None
-        picker._set_hint()
-        text = picker.hint_label.cget("text")
+        text = " ".join(picker.hint_texts())
         assert "数字键 1~9" in text
     finally:
         picker.close()
