@@ -18,7 +18,12 @@ import sys
 import time
 import tkinter as tk
 
-from mchanhua.geometry import Region, logical_to_physical, normalize_drag
+from mchanhua.geometry import (
+    Region,
+    logical_to_physical,
+    normalize_drag,
+    physical_to_logical,
+)
 
 KEY_STEP = 20          # 方向键每次移动多少逻辑像素
 KEY_STEP_FINE = 4      # 按住 Shift 时的小步长
@@ -39,10 +44,23 @@ def _window_size(root: tk.Misc) -> tuple[int, int]:
 
 
 class RegionPicker:
-    """一次框选的完整过程；输入全部来自全局钩子/轮询，不依赖窗口焦点。"""
+    """一次框选的完整过程；输入全部来自全局钩子/轮询，不依赖窗口焦点。
 
-    def __init__(self, physical_screen: Region, parent: tk.Misc | None = None) -> None:
+    传了 on_accept 就是"连续框选模式"：每次确认都把选区交出去、然后把框复位，
+    遮罩不关，可以接着框下一个；Backspace/Esc 才结束。
+    """
+
+    def __init__(
+        self,
+        physical_screen: Region,
+        parent: tk.Misc | None = None,
+        existing: list[tuple[str, Region]] | None = None,
+        on_accept=None,
+    ) -> None:
         self.physical_screen = physical_screen
+        self.existing = list(existing or [])
+        self.on_accept = on_accept
+        self.accepted = 0
         self.result: Region | None = None
         self.box: list[int] | None = None              # 逻辑坐标 l, t, r, b
         self.mouse_enabled = True                      # 默认就能拖（和以前一样）
@@ -78,6 +96,7 @@ class RegionPicker:
             tags=("hint",),
         )
         self._set_hint()
+        self._draw_existing()
         # 一开始就把框摆在屏幕中间，用户一按热键就能看到
         center_x, center_y = width // 2, height // 2
         half_w, half_h = DEFAULT_BOX[0] // 2, DEFAULT_BOX[1] // 2
@@ -90,11 +109,35 @@ class RegionPicker:
             return
         self.canvas.create_rectangle(*self.box, outline="#5ac8fa", width=3, tags=("box",))
 
+    def _draw_existing(self) -> None:
+        """把已经保存的区域画在遮罩上：浅色描边 + 名字，避免重复框。"""
+
+        self.canvas.delete("existing")
+        width, height = _window_size(self.root)
+        for index, (name, region) in enumerate(self.existing, start=1):
+            try:
+                logical = physical_to_logical(region, (width, height), self.physical_screen)
+            except ValueError:  # pragma: no cover - 越界区域
+                continue
+            self.canvas.create_rectangle(
+                logical.x, logical.y, logical.right, logical.bottom,
+                outline="#f2b544", width=2, dash=(6, 4), tags=("existing",),
+            )
+            self.canvas.create_text(
+                logical.x + 4, logical.y + 4, anchor="nw", fill="#f2b544",
+                font=("Microsoft YaHei UI", 12), text=f"{index}. {name}", tags=("existing",),
+            )
+
     def _set_hint(self, extra: str = "") -> None:
         lines = [
-            "拖动鼠标框选 ｜ 方向键移动框 ｜ Ctrl+方向键缩放 ｜ Enter 确认 ｜ Backspace 取消",
+            "拖动鼠标框选 ｜ 方向键移动框 ｜ Ctrl+方向键缩放 ｜ Enter 确认",
             "按 M 可关掉鼠标拖框（游戏里鼠标被锁时请用方向键）",
         ]
+        lines.append(
+            "Backspace / Esc 结束框选" if self.on_accept else "Backspace / Esc 取消"
+        )
+        if self.accepted:
+            lines.append(f"已框住 {self.accepted} 个区域（黄色虚线是已保存的）")
         if extra:
             lines.append(extra)
         self.canvas.itemconfigure(self._hint, text="\n".join(lines))
@@ -269,8 +312,25 @@ class RegionPicker:
             self.result = None
             self.close()
             return
-        self.result = logical_to_physical(logical, _window_size(self.root), self.physical_screen)
+        region = logical_to_physical(logical, _window_size(self.root), self.physical_screen)
+        if self.on_accept is not None:
+            # 连续框选：交出去、复位框，遮罩留着继续用
+            self.accepted += 1
+            self.existing = [*self.existing, (f"第 {self.accepted} 个", region)]
+            self.on_accept(region)
+            self._reset_box()
+            self._draw_existing()
+            self._set_hint()
+            return
+        self.result = region
         self.close()
+
+    def _reset_box(self) -> None:
+        width, height = _window_size(self.root)
+        center_x, center_y = width // 2, height // 2
+        half_w, half_h = DEFAULT_BOX[0] // 2, DEFAULT_BOX[1] // 2
+        self.box = [center_x - half_w, center_y - half_h, center_x + half_w, center_y + half_h]
+        self._draw_box()
 
     def cancel(self) -> None:
         self.result = None
@@ -307,13 +367,17 @@ def pick_region(
     physical_screen: Region,
     parent: tk.Misc | None = None,
     on_ready=None,
+    existing: list[tuple[str, Region]] | None = None,
+    on_accept=None,
 ) -> Region | None:
     """弹出遮罩框选，返回物理像素区域。
 
     取消（Backspace / Esc / 右键）返回 None；on_ready 只在测试里用。
+    existing 会把已保存的区域画在遮罩上；给了 on_accept 就是连续框选模式
+    （每次确认回调一次、遮罩不关），此时返回值恒为 None。
     """
 
-    picker = RegionPicker(physical_screen, parent)
+    picker = RegionPicker(physical_screen, parent, existing=existing, on_accept=on_accept)
     if on_ready is not None:                            # pragma: no cover - 测试用
         on_ready(picker)
     return picker.run()

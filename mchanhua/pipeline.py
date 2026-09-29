@@ -22,6 +22,8 @@ class PipelineResult:
     translate_ms: float = 0.0
     ocr_backend: str = ""
     warnings: list[str] = field(default_factory=list)
+    # 多区域翻译时，每一行来自哪个区域（与 source_lines 平行，单区域时为空）
+    line_areas: list[str] = field(default_factory=list)
 
     @property
     def translated_count(self) -> int:
@@ -52,14 +54,17 @@ def run_from_ocr(
     translator: Translator | None = None,
     on_ocr: Callable[[list[str], float], None] | None = None,
     max_lines: int | None = None,
+    line_areas: list[str] | None = None,
 ) -> PipelineResult:
     """拿着已经识别好的结果继续做翻译（供"自动扩边重识别"复用）。"""
 
     source_lines = [line.text for line in ocr_result.lines]
+    areas_for_lines = list(line_areas or [])
     truncated = 0
     if max_lines is not None and len(source_lines) > max_lines:
         truncated = len(source_lines) - max_lines
         source_lines = source_lines[:max_lines]
+        areas_for_lines = areas_for_lines[:max_lines]
     if on_ocr is not None:
         on_ocr(source_lines, ocr_result.elapsed_ms)
 
@@ -68,6 +73,7 @@ def run_from_ocr(
         output_lines=list(source_lines),
         ocr_ms=ocr_result.elapsed_ms,
         ocr_backend=ocr_result.backend,
+        line_areas=areas_for_lines,
     )
     if truncated:
         result.warnings.append(

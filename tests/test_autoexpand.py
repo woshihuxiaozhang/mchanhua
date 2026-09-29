@@ -205,9 +205,9 @@ def test_worker_respects_padded_capture_mode(workdir):
     app = _app(workdir, _FakeOcr())
     app.translator = DecodingTranslator()
     app.config.ocr.capture_mode = "padded"
-    app.config.regions.set_custom_region(Region(300, 400, 500, 300))
 
-    app.perform_translate()
+    # 显式传入区域 = 刚框完的那一块（单区域路径才会用到 padded 抓图）
+    app.perform_translate(Region(300, 400, 500, 300))
     wait_for(app, "result")
 
     assert app.grabber.requests[-1].to_csv() == "220,320,660,460"

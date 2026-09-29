@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -24,7 +25,7 @@ APP_DIR_NAME = "mchanhua"
 # 配置结构版本：写进 config.toml 的 [meta] version。
 # 旧版本的 exe 不知道这个字段，它保存配置时会把 [meta] 丢掉，
 # 所以"文件里没有 [meta]"就等于"这份配置来自旧版本"，需要迁移。
-CONFIG_VERSION = 4
+CONFIG_VERSION = 5
 
 # 旧版本用过的热键默认值。一旦发现配置里还是这些老值，就说明它来自旧版本，
 # 直接升级成新默认值；用户自己改成别的值的项一律原样保留。
@@ -141,10 +142,70 @@ class RegionsConfig:
 
     fixed: dict[str, str] = field(default_factory=dict)
     follow_cursor: str | None = "-280,-20,560,440"
+    # 参与翻译的区域（按顺序、只留启用的）。停用的区域仍留在 fixed 里，方便随时开回来。
+    areas: list[str] = field(default_factory=list)
 
     def fixed_region(self, name: str) -> Region | None:
         raw = self.fixed.get(name)
         return Region.parse(raw) if raw else None
+
+    def enabled_areas(self) -> list[tuple[str, Region]]:
+        """按顺序取出启用的区域：(名字, 区域)。"""
+
+        result: list[tuple[str, Region]] = []
+        for name in self.areas:
+            region = self.fixed_region(name)
+            if region is not None:
+                result.append((name, region))
+        return result
+
+    def area_names(self) -> list[str]:
+        """所有已保存区域的名字（含停用的），保持 fixed 里的顺序。"""
+
+        return list(self.fixed.keys())
+
+    def next_area_name(self) -> str:
+        """给新区域起个不重名的名字：区域1、区域2……"""
+
+        index = 1
+        existing = set(self.fixed)
+        while f"区域{index}" in existing:
+            index += 1
+        return f"区域{index}"
+
+    def add_area(self, region: Region, name: str | None = None) -> str:
+        """保存一个新区域（默认按顺序命名），并把它设为启用。"""
+
+        label = name or self.next_area_name()
+        self.fixed[label] = region.to_csv()
+        if label not in self.areas:
+            self.areas.append(label)
+        return label
+
+    def remove_area(self, name: str) -> None:
+        self.fixed.pop(name, None)
+        self.areas = [item for item in self.areas if item != name]
+
+    def rename_area(self, old: str, new: str) -> str:
+        """改名（保留原有顺序与启用状态）。返回最终使用的名字。"""
+
+        new = (new or "").strip()
+        if not new or new == old:
+            return old
+        if new in self.fixed:
+            raise ValueError(f"已经有一个叫「{new}」的区域了")
+        if old in self.fixed:
+            self.fixed[new] = self.fixed.pop(old)
+        self.areas = [new if item == old else item for item in self.areas]
+        return new
+
+    def set_area_enabled(self, name: str, enabled: bool) -> None:
+        if name not in self.fixed:
+            return
+        if enabled and name not in self.areas:
+            self.areas.append(name)
+        elif not enabled:
+            self.areas = [item for item in self.areas if item != name]
 
     def custom_region(self) -> Region | None:
         """用户框选并保存下来的自定义选区（v2 的主用选区）。"""
@@ -152,10 +213,16 @@ class RegionsConfig:
         return self.fixed_region(CUSTOM_REGION_KEY)
 
     def set_custom_region(self, region: Region) -> None:
-        self.fixed[CUSTOM_REGION_KEY] = region.to_csv()
+        """兼容老接口（"只保存一个选区"）：写成「区域1」并启用它。"""
+
+        self.fixed[FIRST_AREA_NAME] = region.to_csv()
+        if FIRST_AREA_NAME not in self.areas:
+            self.areas.insert(0, FIRST_AREA_NAME)
 
 
 CUSTOM_REGION_KEY = "custom"
+# 第一个区域的固定名字（老的"自定义选区"迁移过来就叫这个）
+FIRST_AREA_NAME = "区域1"
 
 
 @dataclass
@@ -246,6 +313,13 @@ def migrate(config: Config, version: int | None) -> list[str]:
             if clamped != current:
                 setattr(config.ui, field_name, clamped)
                 changes.append(f"ui.{field_name}: {current} → {clamped}")
+        # v4 及更早只有"一个自定义选区"：迁移成第一个区域，别让用户重框
+        if not config.regions.areas and config.regions.fixed:
+            legacy = config.regions.fixed.pop(CUSTOM_REGION_KEY, None)
+            if legacy:
+                config.regions.fixed = {FIRST_AREA_NAME: legacy, **config.regions.fixed}
+                config.regions.areas = [FIRST_AREA_NAME]
+                changes.append(f"选区：把原来的自定义选区变成「{FIRST_AREA_NAME}」（{legacy}）")
     config.version = CONFIG_VERSION
     return changes
 
@@ -273,6 +347,11 @@ def loads(text: str) -> Config:
         regions=RegionsConfig(
             fixed={str(k): str(v) for k, v in fixed_raw.items()},
             follow_cursor=_section(data, "regions").get("follow_cursor"),
+            areas=[
+                str(item)
+                for item in (_section(data, "regions").get("areas") or [])
+                if str(item).strip()
+            ],
         ),
         glossary={str(k): str(v) for k, v in (_section(data, "glossary")).items()},
     )
@@ -320,6 +399,14 @@ def _dump_scalar(value: Any) -> str:
     return f'"{text}"'
 
 
+def _dump_key(name: str) -> str:
+    """TOML 的裸键只允许 ASCII 字母数字和 -_：区域名/词条名带中文时得加引号。"""
+
+    if re.fullmatch(r"[A-Za-z0-9_-]+", name or ""):
+        return name
+    return _dump_scalar(name)
+
+
 def dumps(config: Config) -> str:
     """把配置写成 TOML。支持一层表和标量，够用且无额外依赖。"""
 
@@ -336,15 +423,18 @@ def dumps(config: Config) -> str:
     lines.append("[regions]")
     if config.regions.follow_cursor:
         lines.append(f"follow_cursor = {_dump_scalar(config.regions.follow_cursor)}")
+    # 参与翻译的区域（有序）；没列进来的区域等于"停用"
+    names = ", ".join(_dump_scalar(item) for item in config.regions.areas)
+    lines.append(f"areas = [{names}]")
     lines.append("")
     lines.append("[regions.fixed]")
     for name, raw in config.regions.fixed.items():
-        lines.append(f"{name} = {_dump_scalar(raw)}")
+        lines.append(f"{_dump_key(name)} = {_dump_scalar(raw)}")
     lines.append("")
 
     lines.append("[glossary]")
     for key, value in config.glossary.items():
-        lines.append(f"{key} = {_dump_scalar(value)}")
+        lines.append(f"{_dump_key(key)} = {_dump_scalar(value)}")
     lines.append("")
     return "\n".join(lines)
 

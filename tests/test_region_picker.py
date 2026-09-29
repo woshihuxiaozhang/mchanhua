@@ -223,6 +223,52 @@ def test_pick_region_returns_none_when_cancelled():
     assert pick_region(SCREEN, _wrap_root(), on_ready=on_ready) is None
 
 
+# ---- 连续框选（Alt+V 帧多个区域）----
+
+
+def test_accept_mode_keeps_overlay_open_and_collects_regions():
+    """连续模式：每按一次 Enter 交出一个区域，遮罩不关，可以接着框下一个。"""
+
+    taken: list[Region] = []
+    picker, root = _picker()
+    try:
+        picker.on_accept = taken.append
+        screen = Region(0, 0, 2560, 1440)
+        picker.physical_screen = screen
+
+        picker.move_box("right")
+        picker.handle_key("enter")             # 第一个
+        assert picker._closed is False         # 遮罩还开着
+        assert picker.accepted == 1
+
+        picker.move_box("down")
+        picker.handle_key("enter")             # 第二个
+        assert picker.accepted == 2
+        assert len(taken) == 2
+        assert taken[0].x < taken[1].x or taken[0].y < taken[1].y
+
+        picker.handle_key("backspace")         # 结束
+        assert picker._closed is True
+        assert picker.result is None
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_existing_areas_are_drawn_on_the_overlay():
+    """已保存的区域要画在遮罩上（黄色虚线 + 名字），方便避免重复框。"""
+
+    picker, root = _picker()
+    try:
+        picker.existing = [("区域1", Region(100, 100, 400, 200))]
+        picker._draw_existing()
+        items = picker.canvas.find_withtag("existing")
+        assert len(items) >= 2                 # 框 + 名字
+    finally:
+        picker.close()
+        root.destroy()
+
+
 def _wrap_root():
     try:
         root = tk.Tk()

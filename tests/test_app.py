@@ -300,8 +300,10 @@ def _app_with_fake_pick(monkeypatch, region):
     app.translator = DecodingTranslator()
     seen: list[int] = []
 
-    def fake_pick(_monitor, _parent):
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None, **_kwargs):
         seen.append(window.root.withdrawn)      # 框选那一刻窗口藏了没
+        if on_accept is not None and region is not None:
+            on_accept(region)                   # 模拟用户框完按 Enter
         return region
 
     monkeypatch.setattr("mchanhua.app.pick_region", fake_pick)
@@ -364,7 +366,7 @@ def test_select_region_restores_window(monkeypatch):
 
     assert seen == [1]
     assert window.root.deiconified >= 1
-    assert app.config.regions.custom_region() is not None
+    assert app.config.regions.enabled_areas()      # 区域已保存并启用
 
 
 # ---- 框选期间再按热键不能重复弹遮罩（日志里抓到过连开 5 层）----

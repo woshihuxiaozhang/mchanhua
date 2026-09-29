@@ -93,6 +93,7 @@ class SettingsWindow:
         self._build_service()
         self._build_hotkeys()
         self._build_appearance()
+        self._build_areas()
         self._build_history()
         self._build_footer()
         self._show_page("翻译服务")
@@ -167,7 +168,7 @@ class SettingsWindow:
     def _build_tabs(self) -> None:
         row = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
         row.pack(fill="x", padx=16, pady=(4, 8))
-        for name in ("翻译服务", "热键", "界面外观", "历史翻译"):
+        for name in ("翻译服务", "热键", "界面外观", "选区", "历史翻译"):
             button = ctk.CTkButton(
                 row, text=name, width=0, height=28, corner_radius=6, font=self.f_label,
                 fg_color="transparent", hover_color=FIELD, text_color=LABEL,
@@ -477,6 +478,117 @@ class SettingsWindow:
             if var is not None:
                 var.set(str(value))
         messagebox.showinfo("已恢复默认主题", "配色已恢复为默认，点「保存并应用」生效。")
+
+    # ---- 选区（多区域）----
+    def _build_areas(self) -> None:
+        page = self._make_page("选区")
+        ctk.CTkLabel(
+            page,
+            text="Ctrl+Alt 会一次翻译所有勾选的区域（整屏只抓一次、OCR 一次）。"
+                 "新增区域：在游戏里按 Alt+V 连续框选。",
+            font=self.f_small, text_color=LABEL, anchor="w", justify="left", wraplength=620,
+        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(4, 8))
+
+        self._area_rows = ctk.CTkFrame(page, corner_radius=0, fg_color="transparent")
+        self._area_rows.grid(row=1, column=0, columnspan=3, sticky="we", padx=8, pady=(0, 8))
+        page.columnconfigure(1, weight=1)
+
+        actions = ctk.CTkFrame(page, corner_radius=0, fg_color="transparent")
+        actions.grid(row=2, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 8))
+        self._button(actions, "全部启用", lambda: self._toggle_all_areas(True)).pack(side="left")
+        self._button(actions, "全部停用", lambda: self._toggle_all_areas(False)).pack(
+            side="left", padx=8
+        )
+        self._button(actions, "删除全部", self._clear_areas).pack(side="left")
+        self.render_areas()
+
+    def render_areas(self) -> None:
+        """把已保存的区域列成一排排可编辑的行。"""
+
+        for child in list(self._area_rows.winfo_children()):
+            child.destroy()
+        config = self.collect_areas_only()
+        names = config.regions.area_names()
+        if not names:
+            ctk.CTkLabel(self._area_rows, text="还没有区域：在游戏里按 Alt+V 框一个试试",
+                         font=self.f_label, text_color=LABEL).pack(anchor="w", pady=8)
+            return
+        for name in names:
+            row = ctk.CTkFrame(self._area_rows, corner_radius=6, fg_color=FIELD)
+            row.pack(fill="x", pady=4)
+            enabled = tk.BooleanVar(value=name in config.regions.areas)
+            ctk.CTkCheckBox(
+                row, text="", variable=enabled, width=24, checkbox_width=18, checkbox_height=18,
+                fg_color=BLUE, hover_color=BLUE,
+                command=lambda n=name, v=enabled: self._set_area_enabled(n, v.get()),
+            ).pack(side="left", padx=(8, 4), pady=8)
+            ctk.CTkLabel(row, text=name, font=self.f_label, text_color=TEXT, width=110,
+                         anchor="w").pack(side="left")
+            region = config.regions.fixed_region(name)
+            ctk.CTkLabel(row, text=region.to_csv() if region else "?", font=self.f_small,
+                         text_color=LABEL, anchor="w").pack(side="left", padx=6)
+            self._button(row, "删除", lambda n=name: self._remove_area(n), width=56).pack(
+                side="right", padx=8, pady=6
+            )
+            self._button(row, "改名", lambda n=name: self._rename_area_prompt(n), width=56).pack(
+                side="right", pady=6
+            )
+
+    def _set_area_enabled(self, name: str, enabled: bool) -> None:
+        self.collect_areas_only().regions.set_area_enabled(name, enabled)
+        self._persist_areas()
+        self.render_areas()
+
+    def _toggle_all_areas(self, enabled: bool) -> None:
+        config = self.collect_areas_only()
+        for name in config.regions.area_names():
+            config.regions.set_area_enabled(name, enabled)
+        self._persist_areas()
+        self.render_areas()
+
+    def _remove_area(self, name: str) -> None:
+        config = self.collect_areas_only()
+        config.regions.remove_area(name)
+        self._persist_areas()
+        self.render_areas()
+        get_logger().info("已删除区域：%s", name)
+
+    def _clear_areas(self) -> None:
+        config = self.collect_areas_only()
+        if not config.regions.area_names():
+            return
+        if not messagebox.askyesno("删除全部区域", "确定删掉所有已保存的选区吗？"):
+            return
+        config.regions.fixed.clear()
+        config.regions.areas = []
+        self._persist_areas()
+        self.render_areas()
+
+    def _rename_area_prompt(self, name: str) -> None:
+        dialog = ctk.CTkInputDialog(title="给区域改名", text=f"「{name}」改成：")
+        new_name = (dialog.get_input() or "").strip()
+        if not new_name:
+            return
+        try:
+            self.collect_areas_only().regions.rename_area(name, new_name)
+        except ValueError as exc:
+            messagebox.showerror("改不了名字", str(exc))
+            return
+        self._persist_areas()
+        self.render_areas()
+
+    def _persist_areas(self) -> None:
+        """区域是"在游戏里框完就生效"的东西，设置里改动也立刻落盘，免得以为删了其实没删。"""
+
+        try:
+            save_config(self.config)
+        except Exception:  # pragma: no cover - 磁盘异常
+            get_logger().exception("保存区域设置失败")
+
+    def collect_areas_only(self) -> Config:
+        """只把"当前的区域设置"整理出来（设置窗口里其它输入框还没保存也没关系）。"""
+
+        return self.config
 
     # ---- 历史翻译 ----
     def _build_history(self) -> None:

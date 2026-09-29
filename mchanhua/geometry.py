@@ -175,6 +175,23 @@ def logical_to_physical(logical: Region, logical_size: tuple[int, int], physical
     return result.clamp(physical)
 
 
+def physical_to_logical(
+    region: Region, logical_size: tuple[int, int], physical: Region
+) -> Region:
+    """物理像素 → 窗口逻辑坐标（logical_to_physical 的反向，用来把已保存区域画到遮罩上）。"""
+
+    if physical.width <= 0 or physical.height <= 0:
+        raise ValueError(f"物理尺寸非法：{physical}")
+    scale_x = logical_size[0] / physical.width
+    scale_y = logical_size[1] / physical.height
+    return Region(
+        round((region.x - physical.x) * scale_x),
+        round((region.y - physical.y) * scale_y),
+        max(1, round(region.width * scale_x)),
+        max(1, round(region.height * scale_y)),
+    )
+
+
 def normalize_drag(x0: int, y0: int, x1: int, y1: int) -> Region:
     """把拖拽起止点转成区域，支持从任意方向拖。"""
 

@@ -536,10 +536,13 @@ class ResultWindow:
     def show_result(self, result: PipelineResult) -> None:
         if self.history_open:              # 有新结果就先回到译文视图
             self.toggle_history()
+        # 多区域结果按区域分组，插一行「［区域1］」当标题
+        target_lines = self._with_area_labels(result.output_lines, result.line_areas)
+        source_lines = self._with_area_labels(result.source_lines, result.line_areas)
         self.target.delete("1.0", "end")
-        self.target.insert("1.0", "\n".join(result.output_lines))
+        self.target.insert("1.0", "\n".join(target_lines))
         self.source.delete("1.0", "end")
-        self.source.insert("1.0", "\n".join(result.source_lines))
+        self.source.insert("1.0", "\n".join(source_lines))
         self.provider_chip.configure(text=self._provider_label())
         if len(result.source_lines) >= 3 and self.collapsed:
             self.toggle_collapsed()
@@ -550,12 +553,29 @@ class ResultWindow:
             f"翻译 {result.translate_ms:.0f} ms",
             f"已翻 {result.translated_count} 行",
         ]
-        if self.config.regions.custom_region() is not None:
-            parts.append(f"选区 {self.config.regions.custom_region().to_csv()}")
+        areas = [name for name in result.line_areas if name]
+        unique_areas = list(dict.fromkeys(areas))
+        if unique_areas:
+            parts.append(f"{len(unique_areas)} 个区域：{'/'.join(unique_areas)}")
         if result.warnings:
             parts.append(f"提示：{result.warnings[0]}")
         self.set_status(" · ".join(parts))
-        self._fit_text_areas(len(result.output_lines) or 1, len(result.source_lines) or 1)
+        self._fit_text_areas(len(target_lines) or 1, len(source_lines) or 1)
+
+    @staticmethod
+    def _with_area_labels(lines: list[str], labels: list[str]) -> list[str]:
+        """给多区域的每一组前面插一行「［区域1］」；单区域时原样返回。"""
+
+        if not labels or len(labels) != len(lines) or not any(labels):
+            return list(lines)
+        out: list[str] = []
+        current: str | None = None
+        for text, label in zip(lines, labels):
+            if label != current:
+                out.append(f"［{label}］")
+                current = label
+            out.append(text)
+        return out
 
     def _fit_text_areas(self, result_lines: int, source_lines: int) -> None:
         """译文/原文区跟着内容长高：没有结果时只留一行，不留一大片空白。"""

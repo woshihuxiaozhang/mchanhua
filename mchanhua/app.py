@@ -9,7 +9,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from mchanhua.autoregion import capture_region_for, filter_capture
+from mchanhua.autoregion import capture_region_for, filter_area_lines, filter_capture
 from mchanhua.capture import create_grabber, frames_similar, grab_clipboard_image, grab_screen
 from mchanhua.config import CUSTOM_REGION_KEY, Config, save_config
 from mchanhua.debugdump import dump_last_run
@@ -170,12 +170,9 @@ class Application:
         """采集区域优先级：已保存的自定义选区 > 跟随光标 > 上次框选的区域。"""
 
         monitor = self.grabber.primary_monitor()
-        custom = self.config.regions.custom_region()
-        if custom is not None:
-            try:
-                return custom.clamp(monitor)
-            except ValueError:
-                get_logger().warning("保存的自定义选区 %s 超出当前屏幕 %s，已忽略", custom, monitor)
+        areas = self._current_areas()
+        if areas:
+            return areas[0][1]          # 单区域入口（比如"只翻第一个区域"）用第一个
         if self.config.regions.follow_cursor:
             offset = Region.parse(self.config.regions.follow_cursor)
             cursor = self.window.root.winfo_pointerxy()
@@ -187,6 +184,18 @@ class Application:
                 return self.last_region
         return self.last_region
 
+    def _current_areas(self) -> list[tuple[str, Region]]:
+        """当前启用的区域（坐标裁到屏幕内，越界的跳过）。"""
+
+        monitor = self.grabber.primary_monitor()
+        result: list[tuple[str, Region]] = []
+        for name, region in self.config.regions.enabled_areas():
+            try:
+                result.append((name, region.clamp(monitor)))
+            except ValueError:
+                get_logger().warning("区域「%s」%s 超出屏幕 %s，已跳过", name, region, monitor)
+        return result
+
     def perform_translate(self, region: Region | None = None) -> None:
         """在主线程里启动一次取词翻译（真正的活儿交给工作线程）。"""
 
@@ -196,7 +205,21 @@ class Application:
         if not self._translate_lock.acquire(blocking=False):
             self._queue_pending("region", region)
             return
-        target = region if region is not None else self._current_region()
+        if region is not None:
+            # 刚框完的那一块：单区域
+            self.window.set_status("正在采集并识别…")
+            self._capture_after_hiding(lambda: self._start_worker(region, None), region)
+            return
+        areas = self._current_areas()
+        if areas:
+            # 多区域：一次抓屏 + 一次 OCR，按区域筛行后合成一次翻译
+            first = areas[0][1]
+            self.window.set_status(f"正在采集并识别（{len(areas)} 个区域）…")
+            self._capture_after_hiding(
+                lambda: self._start_worker(None, None, None, areas), first
+            )
+            return
+        target = self._current_region()
         self.window.set_status("正在采集并识别…")
         self._capture_after_hiding(lambda: self._start_worker(target, None), target)
 
@@ -272,10 +295,16 @@ class Application:
         target = region if region is not None else self.grabber.primary_monitor()
         return window.intersect(target) is not None
 
-    def _start_worker(self, region: Region | None, image, max_lines: int | None = None) -> None:
+    def _start_worker(
+        self,
+        region: Region | None,
+        image,
+        max_lines: int | None = None,
+        areas: list[tuple[str, Region]] | None = None,
+    ) -> None:
         try:
             threading.Thread(
-                target=self._worker, args=(region, image, max_lines), daemon=True
+                target=self._worker, args=(region, image, max_lines, areas), daemon=True
             ).start()
         except Exception:
             self._translate_lock.release()
@@ -447,11 +476,30 @@ class Application:
             return "没有识别到文字：换个画面或把字调大一点再试"
         return f"选区内没有识别到文字（{region.to_csv()}），把框拉大一点圈住文字再试"
 
-    def _worker(self, region: Region | None, image=None, max_lines: int | None = None) -> None:
+    def _worker(
+        self,
+        region: Region | None,
+        image=None,
+        max_lines: int | None = None,
+        areas: list[tuple[str, Region]] | None = None,
+    ) -> None:
+        line_areas: list[str] = []
         try:
             translator = self._ensure_translator()
             try:
-                if image is None:
+                if areas:
+                    # 多区域：整屏抓一次、OCR 一次，再按区域筛行合成
+                    capture, image = self._grab_image(None)
+                    self.queue.put(("call", self._show_after_capture))
+                    raw_result = self.ocr.recognize(image)
+                    lines, line_areas = filter_area_lines(raw_result, capture, areas)
+                    ocr_result = type(raw_result)(
+                        lines=lines,
+                        elapsed_ms=getattr(raw_result, "elapsed_ms", 0.0),
+                        backend=getattr(raw_result, "backend", ""),
+                        language=getattr(raw_result, "language", None),
+                    )
+                elif image is None:
                     capture, image = self._grab_image(region)
                     # 抓完这一张就把窗口放回来：OCR 和翻译都不需要它继续藏着，
                     # 拖着不放窗口会"消失好久"。
@@ -463,13 +511,16 @@ class Application:
                 if not ocr_result.lines:
                     # 选区内没有文字时以前会退回整屏结果（等于把屏幕上别的文字翻出来），
                     # 现在明确提示，不翻译、也不覆盖上次的译文。
-                    self.queue.put(("notice", self._no_text_message(region)))
+                    self.queue.put(
+                        ("notice", self._no_text_message(region if not areas else None))
+                    )
                     return
                 result = run_from_ocr(
                     ocr_result,
                     translator,
                     on_ocr=lambda lines, ms: self.queue.put(("ocr", lines, ms)),
                     max_lines=max_lines,
+                    line_areas=line_areas,
                 )
                 dump_last_run(image, ocr_result, result)
             except Exception as exc:
@@ -479,7 +530,7 @@ class Application:
 
             get_logger().info(
                 "完成：选区 %s，实际抓图 %s，识别 %d 行，翻译 %d 行，OCR %.0f ms，翻译 %.0f ms",
-                region.to_csv() if region is not None else "整屏",
+                self._describe_target(region, areas),
                 capture.to_csv() if capture is not None else "n/a",
                 len(result.source_lines),
                 result.translated_count,
@@ -490,7 +541,8 @@ class Application:
             self.history.add(
                 result.source_lines,
                 result.output_lines,
-                region=region.to_csv() if region is not None else "",
+                region=("/".join(label for label, _ in areas) if areas else
+                        (region.to_csv() if region is not None else "")),
             )
             self.queue.put(("history", self.history.recent()))
             self.queue.put(("result", result))
@@ -504,6 +556,12 @@ class Application:
             else:
                 # 抓图时藏起来的窗口，这会儿放回来
                 self.queue.put(("call", self._show_after_capture))
+
+    @staticmethod
+    def _describe_target(region: Region | None, areas: list[tuple[str, Region]] | None) -> str:
+        if areas:
+            return "多区域 " + "/".join(f"{name} {box.to_csv()}" for name, box in areas)
+        return region.to_csv() if region is not None else "整屏"
 
     # ---- 繁忙时的排队 ----
     def _queue_pending(self, kind: str, region: Region | None = None) -> None:
@@ -540,16 +598,66 @@ class Application:
             self.window.set_status(f"已应用选区 {region.to_csv()}（写入配置文件失败，重启后不保留）")
         return region
 
+    def _pick_areas(self) -> list[str]:
+        """连续框选多个区域并保存：每按一次 Enter 存一个，Backspace/Esc 结束。"""
+
+        saved: list[str] = []
+
+        def handle(region: Region) -> None:
+            name = self.config.regions.add_area(region)
+            saved.append(name)
+            self.last_region = region
+            if self._save_config():
+                self.window.set_status(
+                    f"已保存「{name}」{region.to_csv()}（可继续框，Backspace/Esc 结束）"
+                )
+            else:
+                get_logger().warning("区域保存失败：%s", region.to_csv())
+
+        pick_region(
+            self.grabber.primary_monitor(),
+            self.window.root,
+            existing=self._existing_areas(),
+            on_accept=handle,
+        )
+        return saved
+
+    def _existing_areas(self) -> list[tuple[str, Region]]:
+        """已保存的区域（画到遮罩上，避免重复框）。"""
+
+        monitor = self.grabber.primary_monitor()
+        areas: list[tuple[str, Region]] = []
+        for name in self.config.regions.area_names():
+            region = self.config.regions.fixed_region(name)
+            if region is None:
+                continue
+            try:
+                areas.append((name, region.clamp(monitor)))
+            except ValueError:
+                continue
+        return areas
+
     def perform_select_region(self) -> None:
-        """只框选并保存，不翻译（默认 Alt+V）。"""
+        """连续框选多个区域并保存，不翻译（默认 Alt+V）。
+
+        每按一次 Enter 存一个区域（区域1、区域2……），Backspace/Esc 结束。
+        """
 
         if self._picking:
             get_logger().info("上一次框选还没结束，忽略这次 Alt+V")
             return
+        self._picking = True
         try:
-            if self._pick_and_save_region() is None:
+            self._hide_window_for_pick()
+            saved = self._pick_areas()
+            if saved:
+                self.window.set_status(
+                    f"已保存 {len(saved)} 个区域：{'、'.join(saved)}，按 Ctrl+Alt 一起翻译"
+                )
+            else:
                 self.window.set_status("已取消框选")
         finally:
+            self._picking = False
             self._show_after_capture()      # 这一路不抓图，框完就把窗口放回来
 
     def perform_select_and_translate(self) -> None:

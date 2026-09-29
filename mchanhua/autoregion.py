@@ -134,3 +134,40 @@ def filter_capture(region: Region, capture: Region, ocr_result, mode: str = "scr
         region.to_csv(),
     )
     return filtered
+
+
+def filter_area_lines(
+    ocr_result,
+    capture: Region,
+    areas: list[tuple[str, Region]],
+) -> tuple[list, list[str]]:
+    """多区域：按区域顺序收集行，返回 (行, 每行的区域名)。
+
+    - 每个区域内保持 OCR 的先后顺序（从上到下）；
+    - 重叠区域里同一行只算一次，归给先出现的那个区域；
+    - 区域之间按用户排的顺序拼接，方便译文里按区域分组显示。
+    """
+
+    lines: list = []
+    labels: list[str] = []
+    seen: set[str] = set()
+    for name, region in areas:
+        filtered = filter_lines_in_region(ocr_result, capture, region)
+        ordered = sorted(
+            filtered.lines,
+            key=lambda line: (line.box.y, line.box.x) if line.box else (0, 0),
+        )
+        for line in ordered:
+            key = line.text.strip().casefold()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            lines.append(line)
+            labels.append(name)
+    get_logger().info(
+        "多区域取词：%d 个区域共 %d 行（%s）",
+        len(areas),
+        len(lines),
+        "；".join(f"{name} {len([1 for item in labels if item == name])} 行" for name, _ in areas),
+    )
+    return lines, labels

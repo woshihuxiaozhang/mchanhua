@@ -25,8 +25,10 @@ def test_custom_region_round_trip(workdir: Path):
     path = save_config(config, workdir / "config.toml")
 
     loaded = load_config(path)
-    assert loaded.regions.custom_region().to_csv() == "120,240,600,400"
-    assert "custom" in path.read_text(encoding="utf-8")
+    # 老接口现在写进「区域1」，并且默认是启用的
+    assert loaded.regions.fixed_region("区域1").to_csv() == "120,240,600,400"
+    assert loaded.regions.areas == ["区域1"]
+    assert "区域1" in path.read_text(encoding="utf-8")
 
 
 def test_custom_region_missing_returns_none():
@@ -89,24 +91,32 @@ def test_select_region_saves_custom_region_to_config_file(workdir: Path, monkeyp
     """需求 1 的后半句：框选后要把选区记下来（重启仍在）。"""
 
     app = _app(workdir)
-    monkeypatch.setattr("mchanhua.app.pick_region", lambda monitor, parent: Region(11, 22, 333, 444))
 
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None):
+        on_accept(Region(11, 22, 333, 444))       # 用户框了一个并按 Enter
+        return None                                # 然后结束框选
+
+    monkeypatch.setattr("mchanhua.app.pick_region", fake_pick)
     app.perform_select_region()
 
-    assert app.config.regions.custom_region().to_csv() == "11,22,333,444"
+    assert app.config.regions.fixed_region("区域1").to_csv() == "11,22,333,444"
+    assert app.config.regions.areas == ["区域1"]
     text = Path(app.config_path).read_text(encoding="utf-8")
-    assert 'custom = "11,22,333,444"' in text
-    assert any("已保存自定义选区" in status for status in app.window.statuses)
+    assert '"区域1" = "11,22,333,444"' in text      # 中文键在 TOML 里要加引号
+    assert any("已保存" in status for status in app.window.statuses)
 
 
 def test_select_region_cancel_keeps_previous(workdir: Path, monkeypatch):
     app = _app(workdir)
-    app.config.regions.set_custom_region(Region(1, 2, 3, 4))
-    monkeypatch.setattr("mchanhua.app.pick_region", lambda monitor, parent: None)
+    app.config.regions.add_area(Region(1, 2, 3, 4), name="区域1")
+    monkeypatch.setattr(
+        "mchanhua.app.pick_region",
+        lambda _m, _p, existing=None, on_accept=None: None,   # 直接退出，没框任何东西
+    )
 
     app.perform_select_region()
 
-    assert app.config.regions.custom_region().to_csv() == "1,2,3,4"
+    assert app.config.regions.fixed_region("区域1").to_csv() == "1,2,3,4"
     assert any("已取消框选" in status for status in app.window.statuses)
 
 
@@ -148,8 +158,11 @@ def test_select_and_translate_uses_new_region_without_saving(workdir: Path, monk
 
     app = _app(workdir)
     app.translator = DecodingTranslator()
-    app.config.regions.set_custom_region(Region(1, 2, 3, 4))   # 已有 Alt+V 设定的选区
-    monkeypatch.setattr("mchanhua.app.pick_region", lambda monitor, parent: Region(50, 60, 400, 300))
+    app.config.regions.add_area(Region(1, 2, 3, 4), name="区域1")   # 已有 Alt+V 设定的选区
+    monkeypatch.setattr(
+        "mchanhua.app.pick_region",
+        lambda _m, _p, on_ready=None: Region(50, 60, 400, 300),
+    )
 
     app.perform_select_and_translate()
     messages = wait_for(app, "result")
@@ -157,8 +170,8 @@ def test_select_and_translate_uses_new_region_without_saving(workdir: Path, monk
     # 默认 screen 模式：整屏识别，按本次框的选区筛选
     assert app.grabber.requests[-1].to_csv() == "0,0,2560,1440"
     assert any(message[0] == "result" for message in messages)
-    # 原来的自定义选区不受影响，配置文件里也不会写入这次临时选区
-    assert app.config.regions.custom_region().to_csv() == "1,2,3,4"
+    # 原来的区域不受影响，配置文件里也不会写入这次临时选区
+    assert app.config.regions.fixed_region("区域1").to_csv() == "1,2,3,4"
     assert "50,60,400,300" not in Path(app.config_path).read_text(encoding="utf-8")
 
 
@@ -176,11 +189,16 @@ def test_select_region_only_does_not_translate(workdir: Path, monkeypatch):
     """Alt+V 只框选保存，不触发翻译；之后再按 Ctrl+Alt 才翻译。"""
 
     app = _app(workdir)
-    monkeypatch.setattr("mchanhua.app.pick_region", lambda monitor, parent: Region(7, 8, 90, 100))
+
+    def fake_pick(_monitor, _parent, existing=None, on_accept=None):
+        on_accept(Region(7, 8, 90, 100))
+        return None
+
+    monkeypatch.setattr("mchanhua.app.pick_region", fake_pick)
 
     app.perform_select_region()
     assert app.grabber.requests == []
-    assert app.config.regions.custom_region().to_csv() == "7,8,90,100"
+    assert app.config.regions.fixed_region("区域1").to_csv() == "7,8,90,100"
 
     app.perform_translate()          # 等价于按 Ctrl+Alt
     wait_for(app, "result")
