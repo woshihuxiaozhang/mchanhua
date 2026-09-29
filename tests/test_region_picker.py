@@ -7,7 +7,11 @@ import pytest
 tk = pytest.importorskip("tkinter")
 
 from mchanhua.geometry import Region  # noqa: E402
-from mchanhua.ui.region_picker import pick_region  # noqa: E402
+from mchanhua.ui.region_picker import (  # noqa: E402
+    DEFAULT_BOX,
+    KEY_STEP,
+    pick_region,
+)
 
 SCREEN = Region(0, 0, 2560, 1440)
 
@@ -86,3 +90,50 @@ def test_overlay_takes_keyboard_focus_and_grab():
     time.sleep(0)          # 让 after 回调跑完（pick_region 内部已 wait_window）
 
     assert captured["grab"] is True
+
+
+# ---- 游戏锁住鼠标时的键盘框选（《我的世界》准心场景）----
+
+
+def test_arrow_keys_move_the_box_then_enter_accepts():
+    """鼠标被游戏锁死时，用方向键挪框、Enter 确认也能框出选区。"""
+
+    def press(widget, *keys):
+        for key in keys:
+            widget.event_generate(f"<{key}>", when="now")
+        widget.event_generate("<Return>", when="now")
+
+    base = _run_with([(60, lambda w: press(w, "Right"))])
+    shifted = _run_with([(60, lambda w: press(w, "Right", "Right", "Right", "Down"))])
+
+    assert base is not None and shifted is not None
+    assert shifted.x > base.x                      # 往右挪了
+    assert shifted.y > base.y                      # 也往下挪了
+    assert shifted.width == base.width             # 尺寸不变（只是平移）
+    assert shifted.height == base.height
+
+
+def test_ctrl_arrow_resizes_the_box():
+    def press(widget, ctrl_times: int):
+        widget.event_generate("<Right>", when="now")            # 先让框出现
+        for _ in range(ctrl_times):
+            widget.event_generate("<Control-Right>", when="now")
+        widget.event_generate("<Return>", when="now")
+
+    base = _run_with([(60, lambda w: press(w, 0))])
+    wider = _run_with([(60, lambda w: press(w, 5))])
+
+    assert base is not None and wider is not None
+    assert wider.width > base.width                # 右边界被拉宽
+    assert wider.x == base.x                       # 左边界不动
+
+
+def test_enter_without_any_box_does_nothing():
+    """没按过方向键就按 Enter：不产生选区（也不能崩）。"""
+
+    result = _run_with([
+        (60, lambda w: w.event_generate("<Return>", when="now")),
+        (600, lambda w: w.event_generate("<Escape>", when="now")),
+    ])
+
+    assert result is None
