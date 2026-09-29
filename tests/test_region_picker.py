@@ -126,17 +126,17 @@ def test_backspace_and_escape_cancel():
             root.destroy()
 
 
-# ---- 鼠标（默认关闭，按 M 打开）----
+# ---- 鼠标（默认能拖，按 M 可关掉）----
 
 
-def test_mouse_starts_disabled_and_m_toggles_it():
+def test_mouse_drag_is_on_by_default_and_m_toggles_it():
     picker, root = _picker()
     try:
-        assert picker.mouse_enabled is False      # 游戏里左键会打到游戏上
+        assert picker.mouse_enabled is True       # 和以前一样：一按就能拖
+        picker.handle_key("m")
+        assert picker.mouse_enabled is False      # 游戏里可以关掉，免得点到游戏
         picker.handle_key("m")
         assert picker.mouse_enabled is True
-        picker.handle_key("m")
-        assert picker.mouse_enabled is False
     finally:
         picker.close()
         root.destroy()
@@ -145,8 +145,9 @@ def test_mouse_starts_disabled_and_m_toggles_it():
 def test_mouse_drag_picks_region():
     picker, root = _picker()
     try:
-        picker.mouse_enabled = True
+        picker.note_cursor(100, 120)              # 光标刚动过 → 允许拖动
         picker.apply_mouse(100, 120, True)
+        picker.note_cursor(500, 420)
         picker.apply_mouse(500, 420, True)
         picker.apply_mouse(500, 420, False)
 
@@ -163,12 +164,51 @@ def test_mouse_simple_click_does_not_pick():
 
     picker, root = _picker()
     try:
-        picker.mouse_enabled = True
+        picker.note_cursor(300, 300)
         picker.apply_mouse(300, 300, True)
         picker.apply_mouse(302, 301, False)
 
         assert picker.result is None
         assert picker._closed is False
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_click_is_ignored_when_cursor_is_frozen():
+    """鼠标被游戏锁住（光标长时间不动）时，别把点击当成拖框——否则会挖掉游戏里的方块。"""
+
+    picker, root = _picker()
+    try:
+        picker._cursor_moved_at = 0               # 假装光标已经很久没动过
+        picker.apply_mouse(400, 400, True)
+        picker.apply_mouse(700, 700, True)
+        picker.apply_mouse(700, 700, False)
+
+        assert picker.mouse_blocked is True       # 判定为被锁
+        assert picker.result is None
+        assert picker._mouse_down is False        # 没有开始拖拽
+        assert picker._closed is False            # 遮罩还在，等用户用键盘
+    finally:
+        picker.close()
+        root.destroy()
+
+
+def test_mouse_works_again_after_cursor_moves():
+    picker, root = _picker()
+    try:
+        picker._cursor_moved_at = 0
+        picker.apply_mouse(400, 400, True)
+        assert picker.mouse_blocked is True
+
+        picker.note_cursor(410, 410)              # 光标又动了
+        assert picker.mouse_blocked is False
+        picker.apply_mouse(410, 410, True)
+        picker.note_cursor(600, 600)
+        picker.apply_mouse(600, 600, True)
+        picker.apply_mouse(600, 600, False)
+
+        assert picker.result is not None
     finally:
         picker.close()
         root.destroy()

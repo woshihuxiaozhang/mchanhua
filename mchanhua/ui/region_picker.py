@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import queue
 import sys
+import time
 import tkinter as tk
 
 from mchanhua.geometry import Region, logical_to_physical, normalize_drag
@@ -23,6 +24,8 @@ KEY_STEP = 20          # 方向键每次移动多少逻辑像素
 KEY_STEP_FINE = 4      # 按住 Shift 时的小步长
 KEY_MIN_SIZE = 24      # 键盘框的最小边长
 DEFAULT_BOX = (520, 260)   # 初始框尺寸（大致能罩住一行字幕）
+# 按下鼠标前的这段时间里如果光标一直没动过，就认为鼠标被游戏锁住了
+MOUSE_IDLE_LIMIT = 0.6
 MOVE_KEYS = {"up": "up", "down": "down", "left": "left", "right": "right"}
 CONFIRM_KEYS = {"enter", "return", "kp enter", "kp_enter"}
 CANCEL_KEYS = {"backspace", "esc", "escape", "delete"}
@@ -42,7 +45,10 @@ class RegionPicker:
         self.physical_screen = physical_screen
         self.result: Region | None = None
         self.box: list[int] | None = None              # 逻辑坐标 l, t, r, b
-        self.mouse_enabled = False
+        self.mouse_enabled = True                      # 默认就能拖（和以前一样）
+        self.mouse_blocked = False                     # 疑似被游戏锁住
+        self._cursor: tuple[int, int] | None = None
+        self._cursor_moved_at = time.monotonic()
         self._mouse_down = False
         self._mouse_start: tuple[int, int] | None = None
         self._pool: "queue.Queue[tuple[str, bool, bool]]" = queue.Queue()
@@ -66,12 +72,12 @@ class RegionPicker:
         self.root.configure(bg="black")
         self.canvas = tk.Canvas(self.root, bg="black", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        self.canvas.create_text(
+        self._hint = self.canvas.create_text(
             12, 10, anchor="nw", fill="#e8e8e8", font=("Microsoft YaHei UI", 13),
-            text="方向键移动框 ｜ Ctrl+方向键缩放 ｜ Enter 确认 ｜ Backspace 取消\n"
-                 "按 M 打开鼠标拖框（在游戏里会被鼠标锁定，建议用方向键）",
+            text="",
             tags=("hint",),
         )
+        self._set_hint()
         # 一开始就把框摆在屏幕中间，用户一按热键就能看到
         center_x, center_y = width // 2, height // 2
         half_w, half_h = DEFAULT_BOX[0] // 2, DEFAULT_BOX[1] // 2
@@ -83,6 +89,15 @@ class RegionPicker:
         if self.box is None:
             return
         self.canvas.create_rectangle(*self.box, outline="#5ac8fa", width=3, tags=("box",))
+
+    def _set_hint(self, extra: str = "") -> None:
+        lines = [
+            "拖动鼠标框选 ｜ 方向键移动框 ｜ Ctrl+方向键缩放 ｜ Enter 确认 ｜ Backspace 取消",
+            "按 M 可关掉鼠标拖框（游戏里鼠标被锁时请用方向键）",
+        ]
+        if extra:
+            lines.append(extra)
+        self.canvas.itemconfigure(self._hint, text="\n".join(lines))
 
     # ---- 输入 ----
     def _install_hook(self) -> None:
@@ -149,6 +164,9 @@ class RegionPicker:
             return
         if name == "m":
             self.mouse_enabled = not self.mouse_enabled
+            self._set_hint(
+                "鼠标拖框已关闭（只用键盘）" if not self.mouse_enabled else "鼠标拖框已打开"
+            )
             return
         if name not in MOVE_KEYS:
             return
@@ -197,12 +215,28 @@ class RegionPicker:
             down = bool(user32.GetAsyncKeyState(0x01) & 0x8000)
         except Exception:  # pragma: no cover
             return
+        self.note_cursor(point.x, point.y)
         self.apply_mouse(point.x, point.y, down)
+
+    def note_cursor(self, x: int, y: int) -> None:
+        """记住光标位置；位置真的变了就记时间（判断鼠标有没有被游戏锁住）。"""
+
+        if self._cursor != (x, y):
+            self._cursor = (x, y)
+            self._cursor_moved_at = time.monotonic()
+            if self.mouse_blocked:                     # 光标又能动了
+                self.mouse_blocked = False
+                self._set_hint()
 
     def apply_mouse(self, x: int, y: int, down: bool) -> None:
         """鼠标状态机（抽出来方便测试）：按下→拖动→松开即确认。"""
 
         if down and not self._mouse_down:
+            # 光标半天没动过 = 鼠标被游戏锁着（点击会打到游戏上），这次不接
+            if time.monotonic() - self._cursor_moved_at > MOUSE_IDLE_LIMIT:
+                self.mouse_blocked = True
+                self._set_hint("鼠标像被游戏锁住了：请用方向键移动框，Enter 确认")
+                return
             self._mouse_down = True
             self._mouse_start = (x, y)
             self.box = [x, y, x + 1, y + 1]
