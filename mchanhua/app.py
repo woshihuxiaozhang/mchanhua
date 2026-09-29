@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from pathlib import Path
 
 from PIL import Image
 
 from mchanhua.autoregion import capture_region_for, filter_capture
-from mchanhua.capture import create_grabber, grab_clipboard_image, grab_screen
+from mchanhua.capture import create_grabber, frames_similar, grab_clipboard_image, grab_screen
 from mchanhua.config import CUSTOM_REGION_KEY, Config, save_config
 from mchanhua.debugdump import dump_last_run
 from mchanhua.diagnostics import UiWatchdog, make_dump_all_threads
@@ -26,6 +27,9 @@ from mchanhua.ui.window import ResultWindow, WindowCallbacks
 
 # 全屏翻译时最多翻译多少行（整屏识别出来的行可能很多，这里限制成本与噪音）
 FULLSCREEN_MAX_LINES = 60
+
+# 抓屏时最多连抓几帧来判断画面是否已经稳定，以及每帧之间等多久
+STABLE_INTERVAL_SECONDS = 0.12
 
 
 class Application:
@@ -397,12 +401,27 @@ class Application:
         return capture, image, self._recognize(capture, image, region)
 
     def _grab_image(self, region: Region | None):
-        """按模式抓一张图：screen = 整屏，padded = 选区外扩一圈。"""
+        """按模式抓一张图：screen = 整屏，padded = 选区外扩一圈。
+
+        连抓两帧比较，等画面稳定了再用（同类工具 UGTLive 就是"等画面停下来再翻"）：
+        游戏里的提示框是淡入的，抓早了会翻到半截；画面没变就直接用最新那帧。
+        """
 
         capture = capture_region_for(
             region, self.grabber.primary_monitor(), self.config.ocr.capture_mode
         )
-        return capture, grab_screen(self.grabber, capture)
+        frames = max(1, min(3, int(self.config.ocr.settle_frames)))
+        image = grab_screen(self.grabber, capture)
+        for attempt in range(1, frames):
+            time.sleep(STABLE_INTERVAL_SECONDS)
+            latest = grab_screen(self.grabber, capture)
+            if frames_similar(image, latest):
+                image = latest
+                break
+            image = latest
+            if attempt + 1 == frames:
+                break
+        return capture, image
 
     def _recognize(self, capture: Region | None, image, region: Region | None):
         """识别；选区模式再按选区筛一遍行。"""

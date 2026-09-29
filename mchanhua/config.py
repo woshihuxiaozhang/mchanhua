@@ -85,6 +85,9 @@ class OcrConfig:
     # screen：整屏识别后按选区筛选（保证行完整，默认）
     # padded：只抓选区外扩一圈（快，但横向被切掉的长句补不回来）
     capture_mode: str = "screen"
+    # 抓屏前确认画面已经稳定（1 = 不检测直接抓；2~3 = 多抓几帧比较，
+    # 免得把还在淡入的提示框翻成半截）
+    settle_frames: int = 2
 
 
 @dataclass
@@ -177,6 +180,8 @@ class Config:
             raise ConfigError(f"ocr.upscale 必须为正数：{self.ocr.upscale}")
         if self.ocr.capture_mode not in ("screen", "padded"):
             raise ConfigError(f"ocr.capture_mode 只能是 screen 或 padded：{self.ocr.capture_mode}")
+        if not 1 <= int(self.ocr.settle_frames) <= 3:
+            raise ConfigError(f"ocr.settle_frames 只能是 1~3：{self.ocr.settle_frames}")
         if self.translate.temperature < 0:
             raise ConfigError("translate.temperature 不能为负数")
         if self.capture.monitor < 0:

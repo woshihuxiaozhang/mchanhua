@@ -327,6 +327,7 @@ def test_select_and_translate_keeps_window_hidden_until_captured(monkeypatch):
     """抓图还没开始前不能把窗口又露出来，否则会被拍进画面。"""
 
     app, window, _seen = _app_with_fake_pick(monkeypatch, Region(100, 200, 400, 300))
+    app.config.ocr.settle_frames = 1          # 只抓一帧，方便数抓图次数
 
     captured: list[str] = []
 

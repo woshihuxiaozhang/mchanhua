@@ -140,3 +140,27 @@ def grab_clipboard_image() -> Image.Image:
                 return image.convert("RGB")
         raise RuntimeError("剪贴板里是文件列表，但没有找到图片文件")
     return content.convert("RGB")
+
+
+# ---- 画面稳定检测（照同类工具的做法：等画面"停下来"再翻）----
+
+# 缩到这个小图再比：几十微秒出结果，够判断画面有没有在变
+STABLE_SAMPLE_SIZE = (64, 36)
+STABLE_TOLERANCE = 2.0          # 平均灰度差小于它就算"没变"
+
+
+def frames_similar(
+    first: Image.Image, second: Image.Image, tolerance: float = STABLE_TOLERANCE
+) -> bool:
+    """两张截图是不是几乎一样（用来判断游戏画面/提示框有没有定住）。"""
+
+    if first is None or second is None:
+        return False
+    if first.size != second.size:
+        return False
+    from PIL import ImageChops, ImageStat
+
+    small_a = first.convert("L").resize(STABLE_SAMPLE_SIZE, Image.BILINEAR)
+    small_b = second.convert("L").resize(STABLE_SAMPLE_SIZE, Image.BILINEAR)
+    mean_diff = ImageStat.Stat(ImageChops.difference(small_a, small_b)).mean[0]
+    return float(mean_diff) < float(tolerance)

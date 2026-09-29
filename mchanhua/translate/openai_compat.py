@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any, Sequence
 
 import httpx
 
 from mchanhua.translate.base import TranslationError
+from mchanhua.logging_setup import get_logger
 from mchanhua.translate.placeholders import (
     missing_tokens,
     protect_lines,
@@ -104,6 +106,8 @@ class OpenAICompatibleTranslator:
         glossary: dict[str, str] | None = None,
         client: httpx.Client | None = None,
         provider: str = "custom",
+        retry_attempts: int = 3,
+        retry_backoff: float = 0.6,
     ) -> None:
         if not base_url:
             raise TranslationError("未配置翻译服务的接口地址（base_url）")
@@ -115,6 +119,8 @@ class OpenAICompatibleTranslator:
         self.glossary = dict(glossary or {})
         self.prompt_version = PROMPT_VERSION
         self._client = client or httpx.Client(timeout=timeout)
+        self.retry_attempts = max(1, int(retry_attempts))
+        self.retry_backoff = max(0.0, float(retry_backoff))
         self.warnings: list[str] = []
 
     def _endpoint(self) -> str:
@@ -165,7 +171,7 @@ class OpenAICompatibleTranslator:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         try:
-            response = self._client.post(self._endpoint(), json=payload, headers=headers)
+            response = self._post_with_retry(payload, headers)
         except httpx.HTTPError as exc:
             raise TranslationError(f"请求翻译服务失败：{exc}") from exc
 
@@ -179,6 +185,30 @@ class OpenAICompatibleTranslator:
             raise TranslationError(f"翻译服务响应结构异常：{response.text[:300]}") from exc
 
         return self._parse(content, lines, tables)
+
+    def _post_with_retry(self, payload: dict[str, Any], headers: dict[str, str]):
+        """网络抖动（连接失败、超时）时自动重试几次——同类工具都是这么做的。
+
+        这类错误通常几秒内就恢复，直接抛给用户等于白按一次热键。
+        服务端明确返回的状态码（4xx/5xx）不算网络抖动，交给上层报错。
+        """
+
+        last_error: Exception | None = None
+        for attempt in range(self.retry_attempts):
+            try:
+                return self._client.post(self._endpoint(), json=payload, headers=headers)
+            except httpx.TransportError as exc:      # 含连接失败与超时
+                last_error = exc
+                if attempt + 1 >= self.retry_attempts:
+                    break
+                delay = self.retry_backoff * (2 ** attempt)
+                self.warnings.append(f"网络异常，{delay:.1f} 秒后重试：{exc}")
+                get_logger().warning(
+                    "翻译请求失败，%.1f 秒后重试（第 %d 次）：%s", delay, attempt + 1, exc
+                )
+                time.sleep(delay)
+        assert last_error is not None
+        raise last_error
 
     def _parse(self, content: str, sources: list[str], tables: list[list[str]]) -> list[str]:
         try:

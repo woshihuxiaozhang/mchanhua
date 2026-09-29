@@ -1,7 +1,7 @@
 import pytest
 from PIL import Image
 
-from mchanhua.capture import Grabber, grab_screen, resolve_region
+from mchanhua.capture import Grabber, frames_similar, grab_screen, resolve_region
 from mchanhua.geometry import Region
 
 
@@ -66,3 +66,29 @@ def test_screenshot_fixture_round_trip(workdir):
     Image.new("RGB", (64, 48), (12, 34, 56)).save(path)
     reopened = Image.open(path)
     assert reopened.size == (64, 48)
+
+
+# ---- 画面稳定检测（等提示框定住再翻，学 UGTLive 的 settle）----
+
+
+def test_frames_similar_for_identical_images():
+    first = Image.new("RGB", (200, 120), (30, 60, 90))
+    second = Image.new("RGB", (200, 120), (30, 60, 90))
+    assert frames_similar(first, second) is True
+
+
+def test_frames_similar_detects_small_change():
+    """提示框淡入这种细微变化也要判成"还在变"。"""
+
+    first = Image.new("RGB", (400, 300), (20, 20, 20))
+    second = Image.new("RGB", (400, 300), (20, 20, 20))
+    # 中间画一块亮色，相当于提示框正在出现
+    for x in range(200, 400):
+        for y in range(150, 300):
+            second.putpixel((x, y), (230, 230, 230))
+
+    assert frames_similar(first, second) is False
+
+
+def test_frames_similar_handles_size_mismatch():
+    assert frames_similar(Image.new("RGB", (10, 10)), Image.new("RGB", (20, 20))) is False
