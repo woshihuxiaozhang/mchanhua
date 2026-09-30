@@ -654,7 +654,30 @@ class Application:
             history=self.history,
             on_history_cleared=self.refresh_history,
             preview_opacity=self.preview_opacity,
+            on_open_wizard=self.open_wizard,
         )
+
+    # ---- 首次使用向导 ----
+    def should_show_wizard(self) -> bool:
+        """第一次用（没走过向导、也还没填 key）才弹，别烦老用户。"""
+
+        return (not self.config.setup_done) and (not self.config.resolved_api_key)
+
+    def request_open_wizard(self) -> None:
+        self.queue.put(("call", self.open_wizard))
+
+    def open_wizard(self) -> None:
+        """打开首次使用向导（三步：欢迎 → 填 key → 框选区/热键说明）。"""
+
+        from mchanhua.ui.wizard import open_wizard
+
+        open_wizard(self.config, on_done=self.apply_config, parent=self.window.root)
+
+    def _maybe_show_wizard(self) -> None:
+        if not self.should_show_wizard():
+            return
+        get_logger().info("首次使用（没有 API key）：打开使用向导")
+        self.open_wizard()
 
     def preview_opacity(self, value: float) -> None:
         """设置里拖透明度滑块时即时预览（不用先保存）。"""
@@ -1145,6 +1168,8 @@ class Application:
             ).start()
         else:
             self.window.set_status("就绪：热键已禁用，可点「重新取词」按钮")
+        # 第一次用（没有 key、也没走过向导）就弹一次向导；界面先画出来再弹
+        self.window.root.after(700, self._maybe_show_wizard)
         logger.info("进入界面主循环")
         self.window.run()
         logger.info("界面退出")

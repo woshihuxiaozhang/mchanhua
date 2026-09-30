@@ -316,6 +316,8 @@ class Config:
     loaded_from: Path | None = field(default=None, compare=False)
     version: int = field(default=CONFIG_VERSION, compare=False)
     migrations: list[str] = field(default_factory=list, compare=False)
+    # 首次使用向导走完没有（存进 [meta]，换个新版本也不会被清掉）
+    setup_done: bool = False
 
     @property
     def resolved_api_key(self) -> str:
@@ -464,6 +466,7 @@ def loads(text: str) -> Config:
             area_kinds={str(k): str(v) for k, v in area_kinds_raw.items()},
         ),
         glossary={str(k): str(v) for k, v in (_section(data, "glossary")).items()},
+        setup_done=bool(meta.get("setup_done", False)),
     )
     config.validate()
     config.migrations = migrate(config, version)
@@ -523,6 +526,7 @@ def dumps(config: Config) -> str:
     lines: list[str] = []
     lines.append("[meta]")
     lines.append(f"version = {int(config.version)}")
+    lines.append(f"setup_done = {_dump_scalar(bool(config.setup_done))}")
     lines.append("")
     for section in ("hotkeys", "capture", "ocr", "translate", "watch", "ui"):
         lines.append(f"[{section}]")
