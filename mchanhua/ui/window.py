@@ -319,10 +319,11 @@ class ResultWindow:
             command=self.toggle_history,
         )
         self.history_button.pack(side="right", padx=2)
-        # 「连续」开关：守护选区，文字一变就自动翻译（和 Alt+C 一个作用）
+        # 「实时」开关：守护选区，文字一变就自动翻译（和 Alt+C 一个作用）
         self.watch_button = ctk.CTkButton(
-            row, text="连续", width=52, height=24, corner_radius=6, font=self.f_meta,
+            row, text="实时", width=52, height=24, corner_radius=6, font=self.f_meta,
             fg_color="transparent", hover_color="#F1F1F1", text_color="#5F6368",
+            border_width=1, border_color="#E0E0E0",
             command=self._toggle_watch,
         )
         self.watch_button.pack(side="right", padx=2)
@@ -588,12 +589,13 @@ class ResultWindow:
         self._call("on_toggle_watch")
 
     def set_watch_active(self, active: bool) -> None:
-        """连续翻译开着的时候把按钮点亮，一眼看得出现在正守着选区。"""
+        """实时翻译开着的时候把按钮点亮，一眼看得出现在正守着选区。"""
 
         self.watch_button.configure(
-            text="连续中" if active else "连续",
+            text="实时中" if active else "实时",
             fg_color="#E8F0FE" if active else "transparent",
             text_color="#1A73E8" if active else "#5F6368",
+            border_color="#1A73E8" if active else "#E0E0E0",
         )
 
     def _open_settings(self) -> None:
