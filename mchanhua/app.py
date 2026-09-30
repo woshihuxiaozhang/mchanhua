@@ -48,6 +48,29 @@ def _rebuild_result(source, lines: list):
     )
 
 
+# 手动修正译文时，只有"像术语的短名词"才写进术语表（整句塞进去会把提示词撑坏）
+GLOSSARY_MAX_WORDS = 4
+GLOSSARY_MAX_LENGTH = 40
+GLOSSARY_MAX_TARGET = 24
+SENTENCE_TAILS = (".", "!", "?", "。", "！", "？", "…", "；", ";", "：", ":")
+
+
+def glossary_term(source: str, target: str) -> str | None:
+    """这一行值不值得记进术语表：是短名词/短语就返回清洗后的原文，否则 None。"""
+
+    text = " ".join((source or "").split())
+    if not text or len(text) > GLOSSARY_MAX_LENGTH:
+        return None
+    if text.endswith(SENTENCE_TAILS):
+        return None
+    if len(text.split()) > GLOSSARY_MAX_WORDS:
+        return None
+    translated = (target or "").strip()
+    if not translated or len(translated) > GLOSSARY_MAX_TARGET:
+        return None
+    return text
+
+
 class Application:
     def __init__(
         self,
@@ -97,6 +120,7 @@ class Application:
                 on_open_image=self.request_open_image,
                 on_select_region=self.request_select_region,
                 on_toggle_watch=self.request_toggle_watch,
+                on_save_corrections=self.apply_corrections,
                 on_quit=self.quit,
             ),
         )
@@ -648,6 +672,51 @@ class Application:
         """把最新历史推给界面（设置里清空历史后也会调一次）。"""
 
         self.queue.put(("history", self.history.recent()))
+
+    # ---- 手动修正译文 ----
+    def apply_corrections(self, pairs: list[tuple[str, str]]) -> None:
+        """用户在小窗里改过的译文：写回缓存（下次同一句直接命中）+ 记进术语表。
+
+        缓存是按「原文」命中的，所以改过的行以后不会再问模型；
+        术语表只收「短名词」那种才像术语的行（整句塞进去会把提示词撑坏）。
+        """
+
+        if not pairs:
+            return
+        translator = self._ensure_translator()
+        remember = getattr(translator, "remember", None)
+        cached = 0
+        if callable(remember):
+            for source, target in pairs:
+                try:
+                    remember(source, target)
+                    cached += 1
+                except Exception:
+                    get_logger().warning("修正译文写回缓存失败：%s", source, exc_info=True)
+        terms: dict[str, str] = {}
+        for source, target in pairs:
+            term = glossary_term(source, target)
+            if term is not None:
+                terms[term] = target.strip()
+        if terms:
+            self.config.glossary.update(terms)
+            if self._save_config():
+                # 术语表变了：让翻译器重建一次，下一次请求就带上新译法
+                self.translator = None
+                self.translator_error = None
+        if self.history.amend_last(pairs):
+            self.refresh_history()
+        parts = [f"已保存修正 {len(pairs)} 行"]
+        if cached:
+            parts.append(f"{cached} 行写回缓存（以后同一句不再问模型）")
+        elif translator is None:
+            parts.append("没有可用的翻译服务，只记了术语表")
+        if terms:
+            parts.append("术语表新增/更新 " + "、".join(f"{k}→{v}" for k, v in terms.items()))
+        self.window.set_status(" · ".join(parts))
+        get_logger().info(
+            "手动修正译文：%d 行（缓存 %d 行，术语表 %d 条）", len(pairs), cached, len(terms)
+        )
 
     def suspend_hotkeys(self) -> None:
         """临时卸掉全局热键（设置界面录热键时用）：否则录 Ctrl+Alt 会顺手触发翻译。"""

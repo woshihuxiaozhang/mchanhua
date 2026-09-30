@@ -57,4 +57,11 @@ translate.humanize       = true   让 AI 额外给一段通顺的整段译文
 ocr.settle_frames        = 2      抓屏前确认画面稳定的帧数；设 1 更快但可能抓到半截提示框
 regions.clear_on_exit    = true   退出程序时清空已保存的区域（想留着改成 false）
 
+译文翻错了怎么办
+----------------
+小窗里的译文可以直接用鼠标改（别增删行，改文字就行），改完状态栏右边会冒出「保存修正」：
+· 这一行立刻写进本地缓存 → 以后同一句直接用它，不再问模型
+· 改的是短名词（物品名那种）的话，还会一起记进术语表，影响之后所有翻译
+改多了想清掉：删掉 %APPDATA%\mchanhua\cache.sqlite 即可（术语表在 config.toml 的 [glossary] 里）
+
 更多说明见项目主页的 README：https://github.com/woshihuxiaozhang/mchanhua

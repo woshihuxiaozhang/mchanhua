@@ -72,6 +72,11 @@ class CachingTranslator:
 
         return [value if value is not None else source for value, source in zip(result, sources)]
 
+    def remember(self, source: str, target: str) -> None:
+        """用户手动改过的译文：直接写进缓存，以后同一句不再问模型。"""
+
+        self.cache.put(source, target, self.model, self.prompt_version)
+
 
 def create_translator(
     config: TranslateConfig,

@@ -64,6 +64,7 @@ class WindowCallbacks:
     on_open_image: Callable[[], None] | None = None
     on_select_region: Callable[[], None] | None = None
     on_toggle_watch: Callable[[], None] | None = None
+    on_save_corrections: Callable[[list], None] | None = None
     on_quit: Callable[[], None] | None = None
 
 
@@ -159,6 +160,11 @@ class ResultWindow:
         self.source_visible = True
         self.action_bars: list = []
         self._drag_origin = None
+        # 手动修正译文：记住"译文框里第几行对应识别结果的第几行"
+        self._result: PipelineResult | None = None
+        self._target_map: list[int | None] = []
+        self._editing_programmatically = False
+        self._corrections_pending = False
 
         self._build_title()
         # 先占住底部：按钮和状态行贴底，内容区再吃剩下的空间。
@@ -336,6 +342,8 @@ class ResultWindow:
             text_color="#111111", corner_radius=0, border_width=0, height=44,
         )
         self.target.pack(fill="x", padx=12, pady=(6, 0))
+        # 译文可以直接改：改完点状态栏右边的「保存修正」，写回缓存与术语表
+        self.target.bind("<<Modified>>", self._on_target_modified)
         self.source_area = ctk.CTkFrame(self.body, corner_radius=0, fg_color="transparent")
         self.source_area.pack(fill="x", padx=12)
         self.source = ctk.CTkTextbox(
@@ -345,11 +353,20 @@ class ResultWindow:
         self.source.pack(fill="x")
 
     def _build_meta(self) -> None:
+        row = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
+        row.pack(side="bottom", fill="x", padx=16, pady=(0, 2))
+        self.meta_row = row
         self.status = ctk.CTkLabel(
-            self.card, text="", anchor="w", justify="left",
+            row, text="", anchor="w", justify="left",
             font=self.f_meta, text_color="#9A9A9A",
         )
-        self.status.pack(side="bottom", fill="x", padx=16)
+        self.status.pack(side="left", fill="x", expand=True)
+        # 只有用户动过译文才露出来（平时不占地方）
+        self.correction_button = ctk.CTkButton(
+            row, text="保存修正", width=72, height=20, corner_radius=4, font=self.f_meta,
+            fg_color="#E8F0FE", hover_color="#DCE7FB", text_color="#1A73E8",
+            command=self.save_corrections,
+        )
 
     # ---- 底部按钮 ----
     def _build_buttons(self) -> None:
@@ -584,8 +601,11 @@ class ResultWindow:
         self._call("on_quit")
 
     def _clear(self) -> None:
-        self.target.delete("1.0", "end")
-        self.source.delete("1.0", "end")
+        self._write_text(self.target, [])
+        self._write_text(self.source, [])
+        self._result = None
+        self._target_map = []
+        self._hide_correction_button()
         self.set_status("待取词：把鼠标移到物品上按热键")
         self._fit_text_areas(1, 1)        # 清空后收回一行高，窗口跟着变矮
 
@@ -613,18 +633,22 @@ class ResultWindow:
     def show_result(self, result: PipelineResult) -> None:
         if self.history_open:              # 有新结果就先回到译文视图
             self.toggle_history()
+        self._result = result
+        self._hide_correction_button()
         # 多区域结果按区域分组，插一行「［区域1］」当标题
         if getattr(result, "paragraph", ""):
             # 模型整理过的整段译文更好读；原始行放在下面（按区域标注）方便对照
-            target_lines = [result.paragraph, ""]
-            target_lines += self._with_area_labels(result.output_lines, result.line_areas)
+            body_lines, body_map = self._labelled_with_map(result.output_lines, result.line_areas)
+            target_lines = [result.paragraph, ""] + body_lines
+            target_map: list[int | None] = [None, None] + body_map
         else:
-            target_lines = self._with_area_labels(result.output_lines, result.line_areas)
+            target_lines, target_map = self._labelled_with_map(
+                result.output_lines, result.line_areas
+            )
         source_lines = self._with_area_labels(result.source_lines, result.line_areas)
-        self.target.delete("1.0", "end")
-        self.target.insert("1.0", "\n".join(target_lines))
-        self.source.delete("1.0", "end")
-        self.source.insert("1.0", "\n".join(source_lines))
+        self._write_text(self.target, target_lines)
+        self._write_text(self.source, source_lines)
+        self._target_map = target_map
         self.provider_chip.configure(text=self._provider_label())
         if len(result.source_lines) >= 3 and self.collapsed:
             self.toggle_collapsed()
@@ -650,16 +674,116 @@ class ResultWindow:
     def _with_area_labels(lines: list[str], labels: list[str]) -> list[str]:
         """给多区域的每一组前面插一行「［区域1］」；单区域时原样返回。"""
 
+        return ResultWindow._labelled_with_map(lines, labels)[0]
+
+    @staticmethod
+    def _labelled_with_map(
+        lines: list[str], labels: list[str]
+    ) -> tuple[list[str], list[int | None]]:
+        """同上，但额外给出「显示的每一行对应原来的第几行」——分组标题是 None。
+
+        手动修正译文时要靠这个映射把改过的行对回原文，所以不能只有文本。
+        """
+
         if not labels or len(labels) != len(lines) or not any(labels):
-            return list(lines)
+            return list(lines), list(range(len(lines)))
         out: list[str] = []
+        mapping: list[int | None] = []
         current: str | None = None
-        for text, label in zip(lines, labels):
+        for index, (text, label) in enumerate(zip(lines, labels)):
             if label != current:
                 out.append(f"［{label}］")
+                mapping.append(None)
                 current = label
             out.append(text)
-        return out
+            mapping.append(index)
+        return out, mapping
+
+    def _write_text(self, box, lines: list[str]) -> None:
+        """程序自己往文本框里写：期间不要算成"用户改了译文"。"""
+
+        self._editing_programmatically = True
+        try:
+            box.delete("1.0", "end")
+            box.insert("1.0", "\n".join(lines))
+        finally:
+            self._editing_programmatically = False
+            try:
+                box.edit_modified(False)
+            except Exception:  # pragma: no cover - 个别实现没有这个开关
+                pass
+
+    # ---- 手动修正译文 ----
+    def _on_target_modified(self, _event=None) -> None:
+        """用户在译文框里敲字了：把「保存修正」露出来。"""
+
+        try:
+            changed = bool(self.target.edit_modified())
+            self.target.edit_modified(False)      # 复位标志，下一次改动还能触发
+        except Exception:  # pragma: no cover
+            changed = True
+        if not changed or self._editing_programmatically:
+            return
+        self._show_correction_button()
+
+    def _show_correction_button(self) -> None:
+        if self._corrections_pending:
+            return
+        self._corrections_pending = True
+        self.correction_button.pack(side="right", padx=(8, 0))
+        self.set_status("译文可以直接改：改完点「保存修正」写回缓存与术语表")
+
+    def _hide_correction_button(self) -> None:
+        self._corrections_pending = False
+        try:
+            self.correction_button.pack_forget()
+        except Exception:  # pragma: no cover
+            pass
+
+    def correction_pairs(self) -> list[tuple[str, str]]:
+        """把改过的译文对回原文，返回 [(原文, 新译文), …]（没改的行不算）。"""
+
+        result = self._result
+        if result is None or not self._target_map:
+            return []
+        lines = self.target.get("1.0", "end").splitlines()
+        pairs: list[tuple[str, str]] = []
+        for shown, line in zip(self._target_map, lines):
+            if shown is None or not 0 <= shown < len(result.source_lines):
+                continue
+            if line.strip() and line.strip() != result.output_lines[shown].strip():
+                pairs.append((result.source_lines[shown], line.strip()))
+        return pairs
+
+    def save_corrections(self) -> None:
+        """点「保存修正」：交给控制器写回缓存/术语表。"""
+
+        result = self._result
+        if result is None:
+            self.set_status("还没有译文可以修正")
+            return
+        lines = self.target.get("1.0", "end").splitlines()
+        if len(lines) != len(self._target_map):
+            self.set_status(
+                f"行数对不上了（现在 {len(lines)} 行，原本 {len(self._target_map)} 行）："
+                "修正时别增删行，改文字就行"
+            )
+            return
+        pairs = self.correction_pairs()
+        if not pairs:
+            self._hide_correction_button()
+            self.set_status("译文没有变化，不用保存")
+            return
+        # 记下改过哪几行：保存之后结果本身也要跟着更新，不然再点一次又会被当成"改了"
+        keep = list(result.output_lines)
+        for shown, line in zip(self._target_map, lines):
+            if shown is not None and 0 <= shown < len(keep):
+                keep[shown] = line.strip()
+        callback = getattr(self.callbacks, "on_save_corrections", None)
+        if callback is not None:
+            callback(pairs)
+        result.output_lines = keep
+        self._hide_correction_button()
 
     def _fit_text_areas(self, result_lines: int, source_lines: int, resize: bool = True) -> None:
         """译文/原文区跟着内容长高：没有结果时只留一行，不留一大片空白。"""

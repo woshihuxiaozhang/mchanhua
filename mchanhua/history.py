@@ -79,6 +79,29 @@ class TranslationHistory:
             self._items.clear()
         return removed
 
+    def amend_last(self, pairs: list[tuple[str, str]]) -> bool:
+        """用户手动改过译文：把最近一条记录里的译文换掉（同样只放内存里）。
+
+        返回有没有真的改到（没有记录、或者改完跟原来一样都算没改）。
+        """
+
+        fixes = {source: target for source, target in pairs if source}
+        if not fixes:
+            return False
+        with self._lock:
+            if not self._items:
+                return False
+            last = self._items[-1]
+            targets = tuple(
+                fixes.get(source, target) for source, target in zip(last.source, last.target)
+            )
+            if targets == last.target:
+                return False
+            self._items[-1] = HistoryEntry(
+                at=last.at, source=last.source, target=targets, region=last.region
+            )
+            return True
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._items)
