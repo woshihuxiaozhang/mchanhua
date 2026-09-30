@@ -24,7 +24,7 @@ from mchanhua.translate.connection import test_connection
 from mchanhua.translate.providers import PRESETS, guess_provider
 from mchanhua.ui.hotkey_capture import ComboTracker
 from mchanhua.ui.effects import attach_feedback
-from mchanhua.ui.icons import icon as load_icon
+from mchanhua.ui.icons import icon_kwargs
 from mchanhua.ui.hotkey_picker import pick_hotkey
 from mchanhua.ui.theme import DEFAULT_LIGHT
 from mchanhua.ui.titlebar import use_light_title_bar
@@ -148,8 +148,7 @@ class SettingsWindow:
             text_color=BLUE if primary else "#3C4043",
             border_width=0 if primary else 1, border_color="#E0E0E0",
             width=width,
-            image=load_icon(icon, (15, 15), accent=primary) if icon else None,
-            compound="left" if icon else "center",
+            **icon_kwargs(icon, (15, 15), accent=primary),
         )
         self._feedback.append(attach_feedback(button, accent=primary))
         return button

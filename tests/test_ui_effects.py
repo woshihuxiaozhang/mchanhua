@@ -60,6 +60,14 @@ def test_icon_returns_none_when_file_missing():
     assert icons.icon("这个图标不存在") is None
 
 
+def test_icon_kwargs_are_omitted_without_an_icon():
+    """回归：customtkinter 里 image=None + compound 会把按钮文字吞掉（按钮变空白框）。"""
+
+    assert icons.icon_kwargs(None) == {}
+    assert icons.icon_kwargs("这个图标不存在") == {}
+    assert set(icons.icon_kwargs("check")) == {"image", "compound"}
+
+
 tk = pytest.importorskip("tkinter")
 
 
@@ -90,6 +98,49 @@ def test_buttons_have_icons_and_feedback():
         assert all(button.cget("image") is not None for button in buttons)
     finally:
         window.root.destroy()
+
+
+def test_settings_buttons_keep_their_text():
+    """回归：设置窗口底部「取消」曾经因为 image=None + compound 变成空白按钮。"""
+
+    from mchanhua.ui.settings_window import SettingsWindow
+
+    try:
+        settings = SettingsWindow(Config())
+    except tk.TclError as exc:  # pragma: no cover
+        pytest.skip(f"没有可用的图形环境：{exc}")
+    try:
+        settings.root.update_idletasks()
+        texts = _all_button_texts(settings.card)
+        for expected in ("保存并应用", "取消", "打开配置目录", "打开日志目录", "测试连接"):
+            assert expected in texts, f"按钮文字不见了：{expected}（现有 {texts}）"
+        # 带图标的按钮要真的挂上了图
+        with_icon = [button for button in _all_buttons(settings.card)
+                     if button.cget("image") is not None]
+        assert len(with_icon) >= 5
+    finally:
+        settings.root.destroy()
+
+
+def _all_buttons(widget) -> list:
+    import customtkinter as ctk
+
+    found = []
+    for child in widget.winfo_children():
+        if isinstance(child, ctk.CTkButton):
+            found.append(child)
+        found.extend(_all_buttons(child))
+    return found
+
+
+def _all_button_texts(widget) -> list[str]:
+    texts = []
+    for button in _all_buttons(widget):
+        try:
+            texts.append(str(button.cget("text")))
+        except Exception:  # pragma: no cover
+            continue
+    return texts
 
 
 def test_hover_and_press_animate_button_color():

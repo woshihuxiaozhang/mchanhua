@@ -20,7 +20,7 @@ from mchanhua.history import HistoryEntry, render_entries
 from mchanhua.logging_setup import get_logger
 from mchanhua.pipeline import PipelineResult
 from mchanhua.ui.effects import Spinner, attach_feedback
-from mchanhua.ui.icons import icon as load_icon
+from mchanhua.ui.icons import icon_kwargs
 from mchanhua.ui.titlebar import use_light_title_bar
 
 FONT_STEPS = (11, 13, 15, 19)
@@ -330,7 +330,7 @@ class ResultWindow:
         # 时钟按钮：就在原来 ✕ 的位置（标题行最右），点开是窗内展开的历史翻译
         self.history_button = ctk.CTkButton(
             row, text="", width=30, height=24, corner_radius=6, font=self.f_icon,
-            image=load_icon("clock", (16, 16)),
+            **icon_kwargs("clock", (16, 16)),
             fg_color="transparent", hover_color="#F1F1F1", text_color="#5F6368",
             command=self.toggle_history,
         )
@@ -338,7 +338,7 @@ class ResultWindow:
         # 「实时」开关：守护选区，文字一变就自动翻译（和 Alt+C 一个作用）
         self.watch_button = ctk.CTkButton(
             row, text="实时", width=52, height=24, corner_radius=6, font=self.f_meta,
-            image=load_icon("pulse", (14, 14)), compound="left",
+            **icon_kwargs("pulse", (14, 14)),
             fg_color="transparent", hover_color="#F1F1F1", text_color="#5F6368",
             border_width=1, border_color="#E0E0E0",
             command=self._toggle_watch,
@@ -386,7 +386,7 @@ class ResultWindow:
         # 改过译文时它会点亮（蓝底），没改时点一下会告诉你怎么用。
         self.correction_button = ctk.CTkButton(
             row, text="保存修正", width=72, height=20, corner_radius=4, font=self.f_meta,
-            image=load_icon("check", (12, 12)), compound="left",
+            **icon_kwargs("check", (12, 12)),
             fg_color="transparent", hover_color="#F1F1F1", text_color="#9A9A9A",
             command=self.save_corrections,
         )
@@ -414,8 +414,7 @@ class ResultWindow:
                 hover_color="#DCE7FB" if primary else "#F1F1F1",
                 text_color="#1A73E8" if primary else "#3C4043",
                 border_width=0 if primary else 1, border_color="#E0E0E0",
-                image=load_icon(icon_name, (14, 14), accent=primary),
-                compound="left",
+                **icon_kwargs(icon_name, (14, 14), accent=primary),
                 command=command,
             )
             button.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0))
@@ -657,7 +656,7 @@ class ResultWindow:
             fg_color="#E8F0FE" if active else "transparent",
             text_color="#1A73E8" if active else "#5F6368",
             border_color="#1A73E8" if active else "#E0E0E0",
-            image=load_icon("pulse", (14, 14), accent=bool(active)),
+            **icon_kwargs("pulse", (14, 14), accent=bool(active)),
         )
         self.watch_feedback.refresh_base()
 

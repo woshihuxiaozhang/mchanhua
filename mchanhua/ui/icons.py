@@ -65,3 +65,19 @@ def clear_cache() -> None:
     """测试用：换目录/重新生成图标后清一下缓存。"""
 
     _images.clear()
+
+
+def icon_kwargs(
+    name: str | None, size: tuple[int, int] = DEFAULT_SIZE, accent: bool = False
+) -> dict:
+    """给 CTkButton/CTkLabel 用的图标参数。
+
+    **为什么不能直接写 image=None**：customtkinter 里只要显式传了 `compound`，
+    再配 `image=None`，按钮的文字就会被吞掉（实测：按钮变成空白框）。
+    所以拿不到图标（或没要图标）时，这里返回空字典，让按钮保持默认的文字渲染。
+    """
+
+    if not name:
+        return {}
+    image = icon(name, size, accent)
+    return {"image": image, "compound": "left"} if image is not None else {}
