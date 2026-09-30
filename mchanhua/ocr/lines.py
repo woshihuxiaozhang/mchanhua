@@ -20,6 +20,9 @@ BULLET_START = "-•*·+>＝=@#"
 MAX_LINE_CHARS = 160
 MAX_GAP_RATIO = 0.9          # 行间距 / 行高 超过它就认为不是同一句
 MIN_H_OVERLAP_RATIO = 0.35   # 水平重叠至少占较窄那行的这个比例
+# 同一行的碎片（检测模型把一行切成左右几块）：
+SAME_LINE_V_OVERLAP = 0.5    # 垂直重叠至少占行高的这个比例才算同一行
+SAME_LINE_MAX_GAP = 1.2      # 两块之间的横向间距超过行高的这个倍数就不接
 
 
 def _ends_sentence(text: str) -> bool:
@@ -101,7 +104,10 @@ def merge_lines(
     track_labels = labels is not None
     for index, line in enumerate(lines):
         label = labels[index] if labels and index < len(labels) else ""
-        if merged and _looks_like_continuation(merged[-1], line):
+        if merged and (
+            _looks_like_continuation(merged[-1], line)
+            or _looks_like_same_line_piece(merged[-1], line)
+        ):
             previous = merged[-1]
             box = _union(previous, line)
             merged[-1] = OcrLine(
@@ -114,6 +120,33 @@ def merge_lines(
         if track_labels:
             merged_labels.append(label)
     return merged, merged_labels
+
+
+def _looks_like_same_line_piece(previous: OcrLine, current: OcrLine) -> bool:
+    """OCR 把**同一行**切成左右几块时，把它们接回去。
+
+    检测模型在细长的小字上很容易把一行切成 "ウィン" + "ドウサイズの初期化" 这种碎片，
+    以前只处理"上下换行"的续行，碎片就一直散着（译文也成了没头没尾的两段）。
+    这里要求：垂直方向基本重叠（同一行）、水平方向左右相邻且间距不大、上一块没有句末标点。
+    并排的两栏文字间距通常远大于一个行高，不会误合。
+    """
+
+    if previous.box is None or current.box is None:
+        return False
+    if _ends_sentence(previous.text):
+        return False
+    if len(previous.text) + len(current.text) > MAX_LINE_CHARS:
+        return False
+    height = max(previous.box.height, current.box.height)
+    vertical_overlap = min(previous.box.bottom, current.box.bottom) - max(
+        previous.box.y, current.box.y
+    )
+    if vertical_overlap < height * SAME_LINE_V_OVERLAP:
+        return False
+    gap = current.box.x - previous.box.right
+    if gap > height * SAME_LINE_MAX_GAP or gap < -height * 0.3:
+        return False
+    return True
 
 
 def _union(first: OcrLine, second: OcrLine):

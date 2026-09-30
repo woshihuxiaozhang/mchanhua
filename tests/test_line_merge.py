@@ -125,3 +125,28 @@ def test_very_long_result_is_not_merged():
         _line("more words " * 5, 100, 130),
     ])
     assert len(merged) == 2
+def test_same_line_pieces_are_stitched_back():
+    """回归：检测模型把一行切成左右几块时（日语尤其常见），要接回一整句。"""
+
+    lines = [
+        OcrLine("ウィン", Region(30, 40, 150, 60)),
+        OcrLine("ドウサイズの初期化", Region(190, 42, 420, 58)),
+    ]
+
+    merged, _labels = merge_lines(lines)
+
+    assert [line.text for line in merged] == ["ウィンドウサイズの初期化"]
+    assert merged[0].box.x == 30 and merged[0].box.width == 580
+
+
+def test_side_by_side_labels_are_not_stitched():
+    """同一行但离得远的两栏（间距大于一个行高）不能粘在一起。"""
+
+    lines = [
+        OcrLine("物品栏", Region(30, 40, 90, 40)),
+        OcrLine("任务", Region(400, 40, 60, 40)),
+    ]
+
+    merged, _labels = merge_lines(lines)
+
+    assert [line.text for line in merged] == ["物品栏", "任务"]

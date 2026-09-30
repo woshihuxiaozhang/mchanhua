@@ -53,7 +53,9 @@ def model_pack(language: str | None) -> ModelPack | None:
     return ModelPack(
         language="ja",
         label="日语",
-        detector=directory / "multi_det.onnx",
+        # 检测（找文字框）继续用默认的中英模型：实测在游戏截图上比多语言检测更稳
+        # （多语言检测会把一行切碎甚至丢掉开头几个字）
+        detector=None,
         recognizer=directory / "japan_rec.onnx",
         keys=directory / "japan_dict.txt",
     )

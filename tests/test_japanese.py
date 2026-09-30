@@ -182,6 +182,7 @@ def test_japanese_model_files_are_bundled():
     pack = model_pack("ja")
     assert pack is not None and pack.label == "日语"
     assert has_model("ja") is True, f"缺模型文件：{pack.missing()}（目录 {models_dir()}）"
+    assert pack.detector is None            # 检测继续用默认中英模型（实测更稳）
     assert model_pack("ko") is None
     assert has_model("auto") is False
 
