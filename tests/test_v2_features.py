@@ -147,7 +147,8 @@ def test_hotkey_registration_covers_v2_actions(workdir: Path):
     assert registered["翻译自定义选区"] == app.config.hotkeys.translate
     assert registered["框选并翻译"] == "alt+/"
     assert registered["全屏翻译"] == "alt+m"
-    assert len(app.hotkeys.bindings) == 5      # 退出热键默认为空，不注册
+    assert registered["连续翻译模式"] == "alt+c"
+    assert len(app.hotkeys.bindings) == 6      # 退出热键默认为空，不注册
     assert app.hotkeys.started
 
 

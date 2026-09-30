@@ -63,6 +63,7 @@ class WindowCallbacks:
     on_translate_fullscreen: Callable[[], None] | None = None
     on_open_image: Callable[[], None] | None = None
     on_select_region: Callable[[], None] | None = None
+    on_toggle_watch: Callable[[], None] | None = None
     on_quit: Callable[[], None] | None = None
 
 
@@ -312,6 +313,13 @@ class ResultWindow:
             command=self.toggle_history,
         )
         self.history_button.pack(side="right", padx=2)
+        # 「连续」开关：守护选区，文字一变就自动翻译（和 Alt+C 一个作用）
+        self.watch_button = ctk.CTkButton(
+            row, text="连续", width=52, height=24, corner_radius=6, font=self.f_meta,
+            fg_color="transparent", hover_color="#F1F1F1", text_color="#5F6368",
+            command=self._toggle_watch,
+        )
+        self.watch_button.pack(side="right", padx=2)
         # 最小化 / 关闭交给外框的标题栏按钮，这里不再重复放一份
         for widget in (row, self.card):
             widget.bind("<Button-1>", self._start_drag)
@@ -556,6 +564,18 @@ class ResultWindow:
 
     def _select_region(self) -> None:
         self._call("on_select_region")
+
+    def _toggle_watch(self) -> None:
+        self._call("on_toggle_watch")
+
+    def set_watch_active(self, active: bool) -> None:
+        """连续翻译开着的时候把按钮点亮，一眼看得出现在正守着选区。"""
+
+        self.watch_button.configure(
+            text="连续中" if active else "连续",
+            fg_color="#E8F0FE" if active else "transparent",
+            text_color="#1A73E8" if active else "#5F6368",
+        )
 
     def _open_settings(self) -> None:
         self._call("on_open_settings")

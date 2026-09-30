@@ -68,6 +68,7 @@ class HotkeysConfig:
     translate_clipboard: str = "alt+s"
     select_region: str = "alt+v"
     toggle_window: str = "ctrl+alt+w"
+    watch: str = "alt+c"      # 连续翻译模式开关
     quit: str = ""            # 留空表示不注册退出热键
 
 
@@ -238,6 +239,16 @@ class RegionsConfig:
             self.areas.insert(0, FIRST_AREA_NAME)
 
 
+@dataclass
+class WatchConfig:
+    """连续翻译（守护选区）的参数：多久检查一次、多久最多发一次请求。"""
+
+    interval: float = 1.2               # 抓图 + OCR 的间隔（秒），OCR 在本机跑，很便宜
+    min_request_interval: float = 3.0   # 两次真正翻译请求之间的最小间隔（限流）
+    similarity: float = 0.9             # 文本相似度高于它就认为"内容没变"，跳过翻译
+    idle_slowdown_after: int = 30       # 连续这么多次没变化后自动降频（省电省资源）
+
+
 CUSTOM_REGION_KEY = "custom"
 # 第一个区域的固定名字（老的"自定义选区"迁移过来就叫这个）
 FIRST_AREA_NAME = "区域1"
@@ -253,6 +264,7 @@ class Config:
     capture: CaptureConfig = field(default_factory=CaptureConfig)
     ocr: OcrConfig = field(default_factory=OcrConfig)
     translate: TranslateConfig = field(default_factory=TranslateConfig)
+    watch: WatchConfig = field(default_factory=WatchConfig)
     ui: UiConfig = field(default_factory=UiConfig)
     regions: RegionsConfig = field(default_factory=RegionsConfig)
     glossary: dict[str, str] = field(default_factory=dict)
@@ -279,6 +291,18 @@ class Config:
             raise ConfigError("translate.temperature 不能为负数")
         if not (self.translate.target_language or "").strip():
             raise ConfigError("translate.target_language 不能为空（默认「简体中文」）")
+        if float(self.watch.interval) <= 0:
+            raise ConfigError(f"watch.interval 必须为正数：{self.watch.interval}")
+        if float(self.watch.min_request_interval) < 0:
+            raise ConfigError(
+                f"watch.min_request_interval 不能为负数：{self.watch.min_request_interval}"
+            )
+        if not 0 <= float(self.watch.similarity) <= 1:
+            raise ConfigError(f"watch.similarity 应在 0~1 之间：{self.watch.similarity}")
+        if int(self.watch.idle_slowdown_after) < 1:
+            raise ConfigError(
+                f"watch.idle_slowdown_after 至少为 1：{self.watch.idle_slowdown_after}"
+            )
         if self.capture.monitor < 0:
             raise ConfigError("capture.monitor 不能为负数")
         if not 0 < self.ui.opacity <= 1:
@@ -371,6 +395,7 @@ def loads(text: str) -> Config:
         capture=_build(CaptureConfig, _section(data, "capture"), "capture"),
         ocr=_build(OcrConfig, _section(data, "ocr"), "ocr"),
         translate=_build(TranslateConfig, _section(data, "translate"), "translate"),
+        watch=_build(WatchConfig, _section(data, "watch"), "watch"),
         ui=_build(UiConfig, _section(data, "ui"), "ui"),
         regions=RegionsConfig(
             fixed={str(k): str(v) for k, v in fixed_raw.items()},
@@ -443,7 +468,7 @@ def dumps(config: Config) -> str:
     lines.append("[meta]")
     lines.append(f"version = {int(config.version)}")
     lines.append("")
-    for section in ("hotkeys", "capture", "ocr", "translate", "ui"):
+    for section in ("hotkeys", "capture", "ocr", "translate", "watch", "ui"):
         lines.append(f"[{section}]")
         for key, value in asdict(getattr(config, section)).items():
             lines.append(f"{key} = {_dump_scalar(value)}")

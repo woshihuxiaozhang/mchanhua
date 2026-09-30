@@ -55,6 +55,7 @@ class FakeWindow:
         self.statuses: list[str] = []
         self.results: list[object] = []
         self.sources: list[list[str]] = []
+        self.watch_states: list[bool] = []
         self.root = FakeTkRoot()
 
     def set_status(self, text: str) -> None:
@@ -65,6 +66,9 @@ class FakeWindow:
 
     def show_result(self, result) -> None:
         self.results.append(result)
+
+    def set_watch_active(self, active: bool) -> None:
+        self.watch_states.append(bool(active))
 
     def poll(self, message_queue, interval_ms: int = 60) -> None:  # pragma: no cover
         pass

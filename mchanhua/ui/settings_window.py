@@ -33,6 +33,7 @@ HOTKEY_LABELS = (
     ("translate_fullscreen", "全屏翻译"),
     ("translate_clipboard", "翻译剪贴板图片"),
     ("select_region", "只框选选区"),
+    ("watch", "连续翻译模式"),
     ("quit", "退出程序"),
 )
 
@@ -101,6 +102,7 @@ class SettingsWindow:
         self._build_hotkeys()
         self._build_appearance()
         self._build_areas()
+        self._build_watch()
         self._build_history()
         self._build_footer()
         self._show_page("翻译服务")
@@ -175,7 +177,7 @@ class SettingsWindow:
     def _build_tabs(self) -> None:
         row = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
         row.pack(fill="x", padx=16, pady=(4, 8))
-        for name in ("翻译服务", "热键", "界面外观", "选区", "历史翻译"):
+        for name in ("翻译服务", "热键", "界面外观", "选区", "连续翻译", "历史翻译"):
             button = ctk.CTkButton(
                 row, text=name, width=0, height=28, corner_radius=6, font=self.f_label,
                 fg_color="transparent", hover_color=FIELD, text_color=LABEL,
@@ -625,6 +627,35 @@ class SettingsWindow:
 
         return self.config
 
+    # ---- 连续翻译 ----
+    def _build_watch(self) -> None:
+        page = self._make_page("连续翻译")
+        watch = self.config.watch
+        ctk.CTkLabel(
+            page,
+            text="连续翻译（守护选区）：开着的时候每隔一小会儿抓一次图、识别一次，\n"
+                 "只有文字真的变了才去调用翻译接口——看剧情字幕够实时，也不怎么烧额度。\n"
+                 "在小窗标题行点「连续」按钮、或按热键即可开关。",
+            font=self.f_small, text_color=LABEL, anchor="w", justify="left", wraplength=620,
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 10))
+        rows = (
+            ("检查间隔（秒）", "interval", watch.interval,
+             "每隔多久抓一次图并识别一次；越小越实时，也越费一点 CPU"),
+            ("最短翻译间隔（秒）", "min_request_interval", watch.min_request_interval,
+             "两次真的发翻译请求之间至少隔这么久，免得字幕抖一下就狂发请求"),
+            ("判定相同的相似度", "similarity", watch.similarity,
+             "0~1：越大越敏感。默认 0.9 = 只有一点点像就当作「没变」，跳过翻译"),
+            ("多久后自动降频（次）", "idle_slowdown_after", watch.idle_slowdown_after,
+             "连续这么多次没变化之后，把检查间隔自动拉长一倍，省点资源"),
+        )
+        for index, (label, key, value, hint) in enumerate(rows):
+            row = index * 2 + 1
+            self._row(page, row, label, f"watch.{key}", str(value))
+            ctk.CTkLabel(page, text=hint, font=self.f_small, text_color=LABEL, anchor="w",
+                         justify="left", wraplength=600).grid(
+                row=row + 1, column=1, sticky="w", padx=(0, 8), pady=(0, 8)
+            )
+
     # ---- 历史翻译 ----
     def _build_history(self) -> None:
         page = self._make_page("历史翻译")
@@ -714,6 +745,17 @@ class SettingsWindow:
             value = str(self._vars[f"ui.{key}"].get()).strip()
             if value:
                 setattr(config.ui, key, value)
+        for key in ("interval", "min_request_interval", "similarity"):
+            raw = str(self._vars[f"watch.{key}"].get()).strip()
+            try:
+                setattr(config.watch, key, float(raw))
+            except ValueError:
+                pass
+        raw = str(self._vars["watch.idle_slowdown_after"].get()).strip()
+        try:
+            config.watch.idle_slowdown_after = max(1, int(float(raw)))
+        except ValueError:
+            pass
         return config
 
     def validate(self) -> list[str]:
@@ -734,6 +776,23 @@ class SettingsWindow:
             problems.append("接口地址不能为空")
         if not str(self._vars["model"].get()).strip():
             problems.append("模型名不能为空")
+        for key, label in (
+            ("interval", "检查间隔"),
+            ("min_request_interval", "最短翻译间隔"),
+            ("similarity", "判定相同的相似度"),
+        ):
+            raw = str(self._vars[f"watch.{key}"].get()).strip()
+            try:
+                value = float(raw)
+            except ValueError:
+                problems.append(f"连续翻译：{label}要填数字（现在是 {raw or '空'}）")
+                continue
+            if key == "interval" and value <= 0:
+                problems.append(f"连续翻译：{label}要大于 0 秒")
+            elif key == "min_request_interval" and value < 0:
+                problems.append(f"连续翻译：{label}不能是负数")
+            elif key == "similarity" and not 0 <= value <= 1:
+                problems.append(f"连续翻译：{label}要填 0~1 之间的小数")
         return problems
 
     def test_connection(self) -> None:

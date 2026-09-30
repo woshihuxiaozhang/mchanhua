@@ -27,6 +27,7 @@ from mchanhua.translate import TranslationError, create_translator
 from mchanhua.ui.region_picker import pick_region
 from mchanhua.ui.theme import heal_theme
 from mchanhua.ui.window import ResultWindow, WindowCallbacks
+from mchanhua.watch import should_request
 
 # 全屏翻译时最多翻译多少行（整屏识别出来的行可能很多，这里限制成本与噪音）
 FULLSCREEN_MAX_LINES = 60
@@ -94,6 +95,7 @@ class Application:
                 on_open_settings=self.request_open_settings,
                 on_open_image=self.request_open_image,
                 on_select_region=self.request_select_region,
+                on_toggle_watch=self.request_toggle_watch,
                 on_quit=self.quit,
             ),
         )
@@ -111,6 +113,15 @@ class Application:
         self._translate_lock = threading.Lock()
         self._pending_jobs: list[tuple[str, Region | None]] = []
         self._hidden_for_capture = False
+        # ---- 连续翻译模式（守护选区）的状态 ----
+        self._watch_active = False
+        self._watch_after_id = None          # after 定时器 id，停止时要取消
+        self._watch_busy = False             # 这一拍还在抓图/识别，别重复派活
+        self._watch_last_text = ""           # 上一次真正翻译过的文字
+        self._watch_last_request = 0.0
+        self._watch_idle_ticks = 0           # 连续多少次没变化（用来降频）
+        self._watch_region: Region | None = None
+        self._watch_areas: list[tuple[str, Region]] = []
         # 框选遮罩是用嵌套事件循环弹出来的（wait_window），期间热键消息照样会被处理——
         # 不挡住就会出现"按一次弹一层遮罩、连着截好几次"（见日志里的连续触发）
         self._picking = False
@@ -206,6 +217,10 @@ class Application:
     def request_select_region(self) -> None:
         get_logger().info("热键触发：只框选选区")
         self.queue.put(("call", self.perform_select_region))
+
+    def request_toggle_watch(self) -> None:
+        get_logger().info("热键触发：连续翻译模式")
+        self.queue.put(("call", self.toggle_watch))
 
     def quit(self) -> None:
         self.queue.put(("call", self.window.root.destroy))
@@ -398,6 +413,171 @@ class Application:
         if path:
             self.perform_translate_file(Path(path))
 
+    # ---- 连续翻译模式（守护选区）----
+    def toggle_watch(self) -> None:
+        if self._watch_active:
+            self.stop_watch()
+        else:
+            self.start_watch()
+
+    def start_watch(self) -> bool:
+        """开启连续翻译：每隔一小会儿抓一次图 + OCR（都在本机），
+        只有文字真的变了才去调用翻译接口——既实时又不烧额度。
+        """
+
+        if self._watch_active:
+            return True
+        if self._picking:
+            get_logger().info("正在框选，忽略这次的开启连续翻译")
+            return False
+        areas = self._current_areas()
+        region = None if areas else self._current_region()
+        if not areas and region is None:
+            self.window.set_status("连续翻译：还没有选区，先按 Alt+V 框一个区域再开")
+            return False
+        self._watch_region = region
+        self._watch_areas = areas
+        self._watch_active = True
+        self._watch_busy = False
+        self._watch_last_text = ""
+        self._watch_last_request = 0.0
+        self._watch_idle_ticks = 0
+        self._set_watch_button(True)
+        target = self._describe_target(region, areas or None)
+        blocked = self._region_hits_window(areas[0][1] if areas else region)
+        note = "，小窗挡住了选区（会把自己也拍进去）" if blocked else ""
+        self.window.set_status(
+            f"连续翻译中：盯住 {target}{note} · 文字一变就翻 · {self._watch_stop_hint()} 停止"
+        )
+        get_logger().info(
+            "连续翻译模式已开启：%s（间隔 %.1fs，最小请求间隔 %.1fs）",
+            target,
+            max(0.2, float(self.config.watch.interval)),
+            max(0.0, float(self.config.watch.min_request_interval)),
+        )
+        self._schedule_watch_tick()
+        return True
+
+    def stop_watch(self, quiet: bool = False) -> None:
+        """停止连续翻译（quiet=True 用于退出程序时清理，不碰已经销毁的界面）。"""
+
+        if self._watch_after_id is not None:
+            cancel = getattr(getattr(self.window, "root", None), "after_cancel", None)
+            if callable(cancel):
+                try:
+                    cancel(self._watch_after_id)
+                except Exception:  # pragma: no cover - 定时器已经跑过了
+                    pass
+            self._watch_after_id = None
+        if not self._watch_active:
+            return
+        self._watch_active = False
+        self._watch_busy = False
+        self._watch_areas = []
+        self._set_watch_button(False)
+        if not quiet:
+            self.window.set_status("连续翻译已停止")
+        get_logger().info("连续翻译模式已关闭")
+
+    def _watch_stop_hint(self) -> str:
+        hotkey = (self.config.hotkeys.watch or "").strip()
+        return hotkey if hotkey else "再按一次热键"
+
+    def _set_watch_button(self, active: bool) -> None:
+        setter = getattr(self.window, "set_watch_active", None)
+        if setter is not None:
+            setter(active)
+
+    def _watch_interval_ms(self) -> int:
+        """这一拍之后隔多久再来一次；一直没变化就降频省点 CPU。"""
+
+        seconds = max(0.2, float(self.config.watch.interval))
+        if self._watch_idle_ticks >= max(1, int(self.config.watch.idle_slowdown_after)):
+            seconds *= 2
+        return int(seconds * 1000)
+
+    def _schedule_watch_tick(self) -> None:
+        root = getattr(self.window, "root", None)
+        if root is None or not hasattr(root, "after"):
+            return
+        self._watch_after_id = root.after(self._watch_interval_ms(), self._watch_tick)
+
+    def _watch_tick(self) -> None:
+        """主线程的节拍：到点了就派一个工作线程去"抓图 + OCR"看看文字变没变。
+
+        抓图和识别都不能放在主线程（几百毫秒会卡界面），但 after 定时器只能在主线程排。
+        """
+
+        self._watch_after_id = None
+        if not self._watch_active:
+            return
+        if not self._picking and not self._hidden_for_capture and not self._watch_busy:
+            self._watch_busy = True
+            threading.Thread(target=self._watch_probe, name="watch-probe", daemon=True).start()
+        self._schedule_watch_tick()
+
+    def _watch_probe(self) -> None:
+        """工作线程：抓图 + OCR（**不翻译**），把结果交回主线程判断要不要翻。"""
+
+        region = self._watch_region
+        areas = self._watch_areas
+        try:
+            if areas:
+                capture, image = self._grab_image(None)
+                ocr_result, labels = self._ocr_image(image, capture, areas=areas)
+            else:
+                capture, image = self._grab_image(region)
+                ocr_result, labels = self._ocr_image(image, capture, region=region)
+            text = " ".join(line.text for line in ocr_result.lines)
+        except Exception:
+            get_logger().warning("连续翻译：这次抓图/识别失败，跳过", exc_info=True)
+            ocr_result, labels, text = None, [], ""
+        self.queue.put(("call", lambda: self._watch_checked(text, ocr_result, labels)))
+
+    def _watch_checked(self, text: str, ocr_result, labels: list[str]) -> None:
+        """主线程：确认"内容真的变了 + 过了限流间隔"之后才发翻译请求。"""
+
+        self._watch_busy = False
+        if not self._watch_active:
+            return
+        if ocr_result is None or not getattr(ocr_result, "lines", None):
+            self._watch_idle_ticks += 1          # 没识别到文字：不算变化
+            return
+        watch = self.config.watch
+        now = time.monotonic()
+        changed = should_request(
+            self._watch_last_text,
+            text,
+            threshold=float(watch.similarity),
+            seconds_since_last=now - self._watch_last_request,
+            min_interval=float(watch.min_request_interval),
+        )
+        if not changed:
+            self._watch_idle_ticks += 1
+            return
+        self._watch_last_text = text
+        self._watch_last_request = now
+        self._watch_idle_ticks = 0
+        get_logger().info("连续翻译：文字变了，开始翻译（%d 行）", len(ocr_result.lines))
+        self._start_watch_translate(ocr_result, labels)
+
+    def _start_watch_translate(self, ocr_result, labels: list[str]) -> None:
+        """拿着已经识别好的结果去翻译：不重新抓图、不重新 OCR。"""
+
+        if not self._translate_lock.acquire(blocking=False):
+            return                    # 上一次还没翻完：这次就算了，等下一拍
+        try:
+            threading.Thread(
+                target=self._worker,
+                args=(self._watch_region, None, None, self._watch_areas or None),
+                kwargs={"ocr_result": ocr_result, "line_areas": list(labels or [])},
+                name="watch-translate",
+                daemon=True,
+            ).start()
+        except Exception:
+            self._translate_lock.release()
+            raise
+
     # ---- 设置 ----
     def open_settings(self) -> None:
         """打开设置窗口（与主窗口同一个 Tk root，模态）。"""
@@ -544,12 +724,18 @@ class Application:
         image=None,
         max_lines: int | None = None,
         areas: list[tuple[str, Region]] | None = None,
+        ocr_result=None,
+        line_areas: list[str] | None = None,
     ) -> None:
-        line_areas: list[str] = []
+        line_areas = list(line_areas or [])
+        capture: Region | None = None
         try:
             translator = self._ensure_translator()
             try:
-                if areas:
+                if ocr_result is not None:
+                    # 连续翻译模式：文字已经识别好了，直接进翻译，不再抓图/重识别
+                    image = None
+                elif areas:
                     # 多区域：整屏抓一次、OCR 一次，再按区域筛行合成
                     capture, image = self._grab_image(None)
                     self.queue.put(("call", self._show_after_capture))
@@ -837,6 +1023,7 @@ class Application:
         logger.info("进入界面主循环")
         self.window.run()
         logger.info("界面退出")
+        self.stop_watch(quiet=True)      # 退出时先把守护循环停掉，别再往已销毁的界面里塞消息
         self.watchdog.stop()
         self.hotkeys.stop()
         self.grabber.close()
@@ -865,6 +1052,7 @@ class Application:
             ("全屏翻译", bindings.translate_fullscreen, self.request_translate_fullscreen),
             ("翻译剪贴板图片", bindings.translate_clipboard, self.request_translate_clipboard),
             ("只框选选区", bindings.select_region, self.request_select_region),
+            ("连续翻译模式", bindings.watch, self.request_toggle_watch),
             ("退出", bindings.quit, self.quit),
         ):
             if not (hotkey or "").strip():

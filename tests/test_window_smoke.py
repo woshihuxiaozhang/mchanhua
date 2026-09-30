@@ -184,7 +184,8 @@ def test_collapsing_shrinks_window():
 
 
 def test_card_has_square_corners_and_no_extra_buttons():
-    """内框改成直角；标题行只留「文 / 取词翻译 / 服务 / 时钟」，没有重复的关闭按钮。"""
+    """内框改成直角；标题行只留「文 / 取词翻译 / 服务 / 时钟 / 连续」，
+    没有重复的关闭按钮（最小化、关闭交给外框的标题栏）。"""
 
     window = _window()
     try:
@@ -192,7 +193,7 @@ def test_card_has_square_corners_and_no_extra_buttons():
         assert int(window.card.cget("corner_radius")) == 0
         title_row = window.title_row
         texts = [child.cget("text") for child in title_row.winfo_children()]
-        assert texts == ["文", "取词翻译", window._provider_label(), "🕘"]
+        assert texts == ["文", "取词翻译", window._provider_label(), "🕘", "连续"]
         assert "✕" not in texts and "—" not in texts
     finally:
         window.root.destroy()
