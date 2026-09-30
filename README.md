@@ -10,7 +10,11 @@
 
 ![主窗口](screenshots/main.png)
 
-<sub>翻译进行中会转圈 + 底部细进度条（左）；结果出来后按宽高自动左右并排（右）</sub>
+<sub>译文在上、原文在右侧对照；横向拉长时自动左右并排，竖向时上下排列</sub>
+
+![翻译进行中](screenshots/main-busy.png)
+
+<sub>翻译进行中：状态栏转圈 + 底部细进度条，按钮带图标与悬停/按下反馈</sub>
 
 ## 功能
 
@@ -63,15 +67,16 @@
 - 时钟按钮展开「最近 20 次」翻译历史（窗内浮层，退出程序即清空）；
 - 设置窗口包含翻译服务、热键、界面外观（配色/字号/透明度）、选区管理、连续翻译、历史翻译六个页签。
 
-![设置](screenshots/settings-service.png)
+**设置与浮层**
 
-![选区管理](screenshots/settings-areas.png)
-
-![连续翻译](screenshots/settings-watch.png)
-
-![历史翻译浮层](screenshots/history.png)
+|  |  |
+|---|---|
+| ![设置 · 翻译服务](screenshots/settings-service.png) 翻译服务 / 识别语言 / 自动术语表 | ![设置 · 选区](screenshots/settings-areas.png) 选区：类型 + 专属热键 |
+| ![设置 · 连续翻译](screenshots/settings-watch.png) 连续翻译的间隔与阈值 | ![历史翻译浮层](screenshots/history.png) 时钟按钮展开的最近 20 次 |
 
 ![框选时的按键提示](screenshots/picker-hint.png)
+
+<sub>框选遮罩不抢游戏焦点，按键提示做成带边框的小标签</sub>
 
 ## 环境要求
 
@@ -166,7 +171,7 @@ mchanhua/            程序本体
   translate/         翻译层（OpenAI 兼容 + 缓存 + 术语表 + 占位符保护）
   ui/                小窗、设置窗口、框选遮罩、主题
   app.py             采集 → OCR → 翻译 → 界面的接线
-tests/               313 项测试（纯逻辑 + 界面冒烟）
+tests/               489 项测试（纯逻辑 + 界面冒烟 + 真实 OCR 模型）
 docs/                开发过程中的设计/调研/打包说明
 tools/make_icon.py   生成程序图标
 tools/make_icons.py  生成界面按钮用的线性图标
