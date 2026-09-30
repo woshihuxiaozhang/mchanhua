@@ -392,8 +392,10 @@ def _settings(config: Config):
     pytest.skip(f"没有可用的图形环境：{last}")  # pragma: no cover
 
 
-def test_settings_area_rows_expose_kind_and_hotkey():
-    config = Config()
+def test_settings_area_rows_expose_kind_and_hotkey(workdir: Path):
+    # 一定要用 workdir 里的配置：设置页改类型/热键会立刻落盘，
+    # 用「没有来源的 Config()」会被写进项目目录或 %APPDATA% 里的真实配置
+    config = load_config(save_config(Config(), workdir / "config.toml"))
     config.regions.add_area(Region(1, 2, 3, 4), name="物品提示")
     window = _settings(config)
     try:
@@ -409,8 +411,8 @@ def test_settings_area_rows_expose_kind_and_hotkey():
         window.root.destroy()
 
 
-def test_settings_rejects_area_hotkey_conflicts():
-    config = Config()
+def test_settings_rejects_area_hotkey_conflicts(workdir: Path):
+    config = load_config(save_config(Config(), workdir / "config.toml"))
     config.regions.add_area(Region(1, 2, 3, 4), name="物品提示")
     window = _settings(config)
     try:
@@ -422,8 +424,8 @@ def test_settings_rejects_area_hotkey_conflicts():
         window.root.destroy()
 
 
-def test_settings_rejects_invalid_area_hotkey():
-    config = Config()
+def test_settings_rejects_invalid_area_hotkey(workdir: Path):
+    config = load_config(save_config(Config(), workdir / "config.toml"))
     config.regions.add_area(Region(1, 2, 3, 4), name="物品提示")
     window = _settings(config)
     try:
@@ -435,8 +437,8 @@ def test_settings_rejects_invalid_area_hotkey():
         window.root.destroy()
 
 
-def test_settings_delete_area_clears_its_metadata():
-    config = Config()
+def test_settings_delete_area_clears_its_metadata(workdir: Path):
+    config = load_config(save_config(Config(), workdir / "config.toml"))
     config.regions.add_area(Region(1, 2, 3, 4), name="物品提示")
     config.regions.set_area_hotkey("物品提示", "alt+1")
     config.regions.set_area_kind("物品提示", AREA_KIND_ITEM)
