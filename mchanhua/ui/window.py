@@ -19,6 +19,8 @@ from mchanhua.config import Config
 from mchanhua.history import HistoryEntry, render_entries
 from mchanhua.logging_setup import get_logger
 from mchanhua.pipeline import PipelineResult
+from mchanhua.ui.effects import Spinner, attach_feedback
+from mchanhua.ui.icons import icon as load_icon
 from mchanhua.ui.titlebar import use_light_title_bar
 
 FONT_STEPS = (11, 13, 15, 19)
@@ -98,6 +100,10 @@ def drain_queue(message_queue: "queue.Queue[tuple]", sink, max_messages: int = 5
                 handler(message[1])
         elif kind == "call":
             message[1]()
+        elif kind == "busy":
+            handler = getattr(sink, "set_busy", None)
+            if handler is not None:
+                handler(bool(message[1]))
     return handled
 
 
@@ -168,11 +174,17 @@ class ResultWindow:
         self._target_map: list[int | None] = []
         self._editing_programmatically = False
         self._corrections_pending = False
+        # 动效：按钮反馈 + 加载转圈 + 顶部细进度条
+        self.feedback: list = []
+        self.spinner = Spinner()
+        self.busy = False
+        self._status_text = ""
 
         self._build_title()
         # 先占住底部：按钮和状态行贴底，内容区再吃剩下的空间。
         # 这样窗口被压小的时候是内容区变矮（可滚动），而不是把按钮挤出窗口外。
         self._build_buttons()
+        self._build_progress()
         self._build_meta()
         self._build_text()
         self.set_status(IDLE_STATUS)
@@ -317,7 +329,8 @@ class ResultWindow:
         self.provider_chip.pack(side="left")
         # 时钟按钮：就在原来 ✕ 的位置（标题行最右），点开是窗内展开的历史翻译
         self.history_button = ctk.CTkButton(
-            row, text="🕘", width=30, height=24, corner_radius=6, font=self.f_icon,
+            row, text="", width=30, height=24, corner_radius=6, font=self.f_icon,
+            image=load_icon("clock", (16, 16)),
             fg_color="transparent", hover_color="#F1F1F1", text_color="#5F6368",
             command=self.toggle_history,
         )
@@ -325,11 +338,15 @@ class ResultWindow:
         # 「实时」开关：守护选区，文字一变就自动翻译（和 Alt+C 一个作用）
         self.watch_button = ctk.CTkButton(
             row, text="实时", width=52, height=24, corner_radius=6, font=self.f_meta,
+            image=load_icon("pulse", (14, 14)), compound="left",
             fg_color="transparent", hover_color="#F1F1F1", text_color="#5F6368",
             border_width=1, border_color="#E0E0E0",
             command=self._toggle_watch,
         )
         self.watch_button.pack(side="right", padx=2)
+        self.feedback.append(attach_feedback(self.history_button))
+        self.watch_feedback = attach_feedback(self.watch_button)
+        self.feedback.append(self.watch_feedback)
         # 最小化 / 关闭交给外框的标题栏按钮，这里不再重复放一份
         for widget in (row, self.card):
             widget.bind("<Button-1>", self._start_drag)
@@ -369,34 +386,50 @@ class ResultWindow:
         # 改过译文时它会点亮（蓝底），没改时点一下会告诉你怎么用。
         self.correction_button = ctk.CTkButton(
             row, text="保存修正", width=72, height=20, corner_radius=4, font=self.f_meta,
+            image=load_icon("check", (12, 12)), compound="left",
             fg_color="transparent", hover_color="#F1F1F1", text_color="#9A9A9A",
             command=self.save_corrections,
         )
         self.correction_button.pack(side="right", padx=(8, 0))
+        self.feedback.append(attach_feedback(self.correction_button))
 
     # ---- 底部按钮 ----
     def _build_buttons(self) -> None:
         bar = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
-        bar.pack(side="bottom", fill="x", padx=12, pady=(8, 8))
+        bar.pack(side="bottom", fill="x", padx=10, pady=(8, 8))
         self.action_bars.append(bar)
         specs = (
-            ("翻译选区", self._translate, True, "scan-text"),
+            ("翻译选区", self._translate, True, "scan"),
             ("框选并翻译", self._select_and_translate, False, "crop"),
             ("全屏翻译", self._translate_fullscreen, False, "monitor"),
-            ("设置", self._open_settings, False, "settings"),
+            ("设置", self._open_settings, False, "sliders"),
         )
         for column in range(len(specs)):
             # 四等分：按钮永远不会把窗口顶宽，也就不会顶出屏幕
             bar.grid_columnconfigure(column, weight=1, uniform="action")
-        for column, (text, command, primary, _icon) in enumerate(specs):
-            ctk.CTkButton(
+        for column, (text, command, primary, icon_name) in enumerate(specs):
+            button = ctk.CTkButton(
                 bar, text=text, width=1, height=34, corner_radius=6, font=self.f_source,
                 fg_color="#E8F0FE" if primary else "#FFFFFF",
                 hover_color="#DCE7FB" if primary else "#F1F1F1",
                 text_color="#1A73E8" if primary else "#3C4043",
                 border_width=0 if primary else 1, border_color="#E0E0E0",
+                image=load_icon(icon_name, (14, 14), accent=primary),
+                compound="left",
                 command=command,
-            ).grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0))
+            )
+            button.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0))
+            self.feedback.append(attach_feedback(button, accent=primary))
+
+    def _build_progress(self) -> None:
+        """翻译进行中显示的细进度条（不确定模式，一直来回跑）。"""
+
+        accent = self.config.ui.accent or "#1A73E8"
+        self.progress = ctk.CTkProgressBar(
+            self.card, height=4, corner_radius=2, mode="indeterminate",
+            fg_color="#EDF1F7", progress_color=accent,
+        )
+        self.progress.pack_forget()          # 空闲时不占地方
 
     # ---- 历史翻译（叠在原窗口上的小浮层）----
     def _build_history_panel(self) -> None:
@@ -490,8 +523,9 @@ class ResultWindow:
             self._height_before_history = self.root.winfo_height()
             self.refresh_history()
             self.history_panel.place(
-                relx=1.0, x=-HISTORY_PANEL_RIGHT, y=HISTORY_PANEL_TOP, anchor="ne"
+                relx=1.0, x=HISTORY_PANEL_W, y=HISTORY_PANEL_TOP, anchor="ne"
             )
+            self._slide_history_panel()          # 从右边滑进来
             self.history_button.configure(fg_color="#E8F0FE", text_color="#1A73E8")
             self.set_status("历史翻译喵：最近 20 次（再点时钟收起，设置里能看全部）")
         else:
@@ -499,6 +533,30 @@ class ResultWindow:
             self.history_button.configure(fg_color="transparent", text_color="#5F6368")
             # 收起后恢复原来的状态文字，别让"历史翻译…"留在状态栏里
             self.set_status(self._status_before_history or IDLE_STATUS)
+
+    def _slide_history_panel(self, steps: int = 6, delay: int = 18) -> None:
+        """历史浮层从窗口右侧滑进来（步数固定，跑完就停在目标位置）。"""
+
+        start = HISTORY_PANEL_W
+        end = -HISTORY_PANEL_RIGHT
+        total = max(1, int(steps))
+
+        def step(index: int) -> None:
+            ratio = index / total
+            # ease-out：先快后慢，看起来更自然
+            eased = 1 - (1 - ratio) ** 2
+            x = round(start + (end - start) * eased)
+            try:
+                self.history_panel.place(
+                    relx=1.0, x=x, y=HISTORY_PANEL_TOP, anchor="ne"
+                )
+            except Exception:  # pragma: no cover - 窗口已销毁
+                return
+            if index >= total:
+                return
+            self.root.after(max(1, delay), lambda: step(index + 1))
+
+        step(0)
         # 只改尺寸、不动位置：挪过窗口之后也不会跳回原位
         self._resize_keep_position(HISTORY_WINDOW_MIN_H if self.history_open else 0)
 
@@ -599,7 +657,9 @@ class ResultWindow:
             fg_color="#E8F0FE" if active else "transparent",
             text_color="#1A73E8" if active else "#5F6368",
             border_color="#1A73E8" if active else "#E0E0E0",
+            image=load_icon("pulse", (14, 14), accent=bool(active)),
         )
+        self.watch_feedback.refresh_base()
 
     def _open_settings(self) -> None:
         self._call("on_open_settings")
@@ -619,6 +679,7 @@ class ResultWindow:
     def show_notice(self, text: str) -> None:
         """只显示一条提示（例如"选区内没有识别到文字"），并清掉上一次的结果。"""
 
+        self.set_busy(False)
         if self.history_open:
             self.toggle_history()
         self._clear()
@@ -626,10 +687,37 @@ class ResultWindow:
 
     # ---- 显示 ----
     def set_status(self, text: str) -> None:
-        self.status.configure(text=text)
+        self._status_text = text
+        self._render_status()
+
+    def _render_status(self) -> None:
+        prefix = f"{self.spinner.frame()} " if self.busy else ""
+        self.status.configure(text=f"{prefix}{self._status_text}")
+
+    def set_busy(self, busy: bool) -> None:
+        """翻译进行中：状态行前面转圈 + 底部细进度条动起来。"""
+
+        busy = bool(busy)
+        if busy == self.busy:
+            return
+        self.busy = busy
+        self.spinner.reset()
+        if busy:
+            try:
+                self.progress.pack(side="bottom", fill="x", padx=16, pady=(0, 2))
+                self.progress.start()
+            except Exception:  # pragma: no cover - 窗口已销毁
+                pass
+        else:
+            try:
+                self.progress.stop()
+                self.progress.pack_forget()
+            except Exception:  # pragma: no cover
+                pass
+        self._render_status()
 
     def status_text(self) -> str:
-        return str(self.status.cget("text"))
+        return self._status_text
 
     def show_source(self, lines: list[str], elapsed_ms: float) -> None:
         self.source.delete("1.0", "end")
@@ -638,6 +726,7 @@ class ResultWindow:
         self.set_status(f"OCR {elapsed_ms:.0f} ms · 正在翻喵…")
 
     def show_result(self, result: PipelineResult) -> None:
+        self.set_busy(False)
         if self.history_open:              # 有新结果就先回到译文视图
             self.toggle_history()
         self._result = result
@@ -818,6 +907,9 @@ class ResultWindow:
     def on_poll(self) -> None:
         if self.heartbeat is not None:
             self.heartbeat()
+        if self.busy:                       # 转圈：跟着 poll 走一帧，不另排定时器
+            self.spinner.advance()
+            self._render_status()
 
     def drain(self, message_queue: "queue.Queue[tuple]", max_messages: int = 50) -> int:
         return drain_queue(message_queue, self, max_messages)

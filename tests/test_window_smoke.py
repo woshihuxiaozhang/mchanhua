@@ -193,7 +193,8 @@ def test_card_has_square_corners_and_no_extra_buttons():
         assert int(window.card.cget("corner_radius")) == 0
         title_row = window.title_row
         texts = [child.cget("text") for child in title_row.winfo_children()]
-        assert texts == ["文", "取词翻译", window._provider_label(), "🕘", "实时"]
+        # 时钟按钮现在只用图标（text 为空），「实时」按钮是文字+图标
+        assert texts == ["文", "取词翻译", window._provider_label(), "", "实时"]
         assert "✕" not in texts and "—" not in texts
     finally:
         window.root.destroy()
@@ -300,7 +301,9 @@ def test_poll_arms_next_tick_before_doing_the_work():
 def test_history_button_is_a_clock_icon():
     window = _window()
     try:
-        assert window.history_button.cget("text") == "🕘"
+        # 图标由 assets/icons/clock.png 提供（不再是 emoji，免得不同系统显示成彩块或方框）
+        assert window.history_button.cget("text") == ""
+        assert window.history_button.cget("image") is not None
     finally:
         window.root.destroy()
 

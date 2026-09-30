@@ -26,3 +26,27 @@ def workdir() -> Path:
         yield path
     finally:
         shutil.rmtree(path, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def isolate_tk_roots():
+    """每个测试结束后把 Tk 的"默认根"清干净。
+
+    有的测试会自己起一个 tk.Tk()（比如框选遮罩），漏掉一个还活着的根就会成为
+    tkinter 的默认根，之后新建窗口里的图片会绑到那个旧解释器上，
+    报 `image "pyimageN" doesn't exist`（真实程序只有一个根，不受影响）。
+    """
+
+    yield
+    try:
+        import tkinter
+    except ImportError:  # pragma: no cover
+        return
+    root = getattr(tkinter, "_default_root", None)
+    if root is None:
+        return
+    try:
+        root.destroy()
+    except Exception:  # pragma: no cover - 已经关掉了
+        pass
+    tkinter._default_root = None

@@ -22,6 +22,7 @@ if errorlevel 1 (
 
 echo [2/4] generating icon ...
 "%PY%" tools\make_icon.py
+"%PY%" tools\make_icons.py
 
 echo [3/4] packaging (this takes a few minutes) ...
 "%PY%" -m PyInstaller --noconfirm --clean mchanhua.spec

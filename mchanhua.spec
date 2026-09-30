@@ -43,6 +43,8 @@ datas += [
     ("assets/models/japan_rec.onnx", "assets/models"),
     ("assets/models/japan_dict.txt", "assets/models"),
 ]
+# 界面小图标（按钮上的线性图标，PNG 透明底）
+datas += [("assets/icons", "assets/icons")]
 binaries = collect_dynamic_libs("onnxruntime") + conda_extra_binaries()
 
 hiddenimports = (

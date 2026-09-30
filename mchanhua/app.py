@@ -445,6 +445,7 @@ class Application:
         max_lines: int | None = None,
         areas: list[tuple[str, Region]] | None = None,
     ) -> None:
+        self.queue.put(("busy", True))       # 状态栏转圈 + 底部进度条
         try:
             threading.Thread(
                 target=self._worker, args=(region, image, max_lines, areas), daemon=True
@@ -482,6 +483,7 @@ class Application:
             self.window.set_status(f"剪贴板没读到喵：{exc}")
             return
         self.window.set_status("正在看剪贴板里的图喵…")
+        self.queue.put(("busy", True))
         threading.Thread(target=self._worker, args=(None, image), daemon=True).start()
 
     def perform_open_image(self) -> None:
@@ -787,6 +789,7 @@ class Application:
             self.window.set_status(f"这张图打不开喵：{exc}")
             return
         self.window.set_status(f"正在看这张图喵：{path.name}")
+        self.queue.put(("busy", True))
         threading.Thread(target=self._worker, args=(None, image), daemon=True).start()
 
     def _capture_and_ocr(self, region: Region | None):
@@ -936,6 +939,7 @@ class Application:
                 self.queue.put(("status", self.translator_error))
         finally:
             self._translate_lock.release()
+            self.queue.put(("busy", False))
             if self._pending_jobs:
                 # 交回主线程执行，避免在工作线程里碰 Tk
                 self.queue.put(("call", self._drain_pending))

@@ -23,6 +23,8 @@ from mchanhua.paths import app_dir, log_dir
 from mchanhua.translate.connection import test_connection
 from mchanhua.translate.providers import PRESETS, guess_provider
 from mchanhua.ui.hotkey_capture import ComboTracker
+from mchanhua.ui.effects import attach_feedback
+from mchanhua.ui.icons import icon as load_icon
 from mchanhua.ui.hotkey_picker import pick_hotkey
 from mchanhua.ui.theme import DEFAULT_LIGHT
 from mchanhua.ui.titlebar import use_light_title_bar
@@ -99,6 +101,7 @@ class SettingsWindow:
         self._pages: dict[str, ctk.CTkFrame] = {}
         self._page_bodies: dict[str, ctk.CTkScrollableFrame] = {}
         self._tab_buttons: dict[str, ctk.CTkButton] = {}
+        self._feedback: list = []
 
         family = config.ui.font_family or "Microsoft YaHei UI"
         self.f_label = ctk.CTkFont(family=family, size=13)
@@ -134,15 +137,22 @@ class SettingsWindow:
         )
         return entry
 
-    def _button(self, parent, text: str, command, primary: bool = False, width: int = 0):
-        return ctk.CTkButton(
+    def _button(
+        self, parent, text: str, command, primary: bool = False, width: int = 0,
+        icon: str | None = None,
+    ):
+        button = ctk.CTkButton(
             parent, text=text, command=command, height=34, corner_radius=6, font=self.f_label,
             fg_color=BLUE_SOFT if primary else CARD,
             hover_color="#DCE7FB" if primary else FIELD,
             text_color=BLUE if primary else "#3C4043",
             border_width=0 if primary else 1, border_color="#E0E0E0",
             width=width,
+            image=load_icon(icon, (15, 15), accent=primary) if icon else None,
+            compound="left" if icon else "center",
         )
+        self._feedback.append(attach_feedback(button, accent=primary))
+        return button
 
     def _row(self, parent, row: int, label: str, key: str, value: str, show: str = ""):
         ctk.CTkLabel(parent, text=label, font=self.f_label, text_color=LABEL,
@@ -315,7 +325,7 @@ class SettingsWindow:
 
         actions = ctk.CTkFrame(page, corner_radius=0, fg_color="transparent")
         actions.grid(row=6, column=1, sticky="w", pady=(4, 6), padx=(0, 8))
-        self._button(actions, "⚡ 测试连接", self.test_connection).pack(side="left")
+        self._button(actions, "测试连接", self.test_connection, icon="bolt").pack(side="left")
         self._test_label = ctk.CTkLabel(actions, text="", font=self.f_label, text_color="#5F6368")
         self._test_label.pack(side="left", padx=10)
 
@@ -332,7 +342,7 @@ class SettingsWindow:
             anchor="w", justify="left", wraplength=560,
         )
         self._terms_label.pack(side="left")
-        self._button(self._terms_row, "清空", self.clear_learned_terms, width=64).pack(
+        self._button(self._terms_row, "清空", self.clear_learned_terms, width=64, icon="trash").pack(
             side="right", pady=2
         )
         self.render_terms()
@@ -614,12 +624,13 @@ class SettingsWindow:
             f"框选新区域（{self.config.hotkeys.select_region or 'Alt+V'}）",
             self.pick_region_now,
             primary=True,
+            icon="plus",
         ).pack(side="left", padx=(0, 12))
-        self._button(actions, "全部启用", lambda: self._toggle_all_areas(True)).pack(side="left")
+        self._button(actions, "全部启用", lambda: self._toggle_all_areas(True), icon="check").pack(side="left")
         self._button(actions, "全部停用", lambda: self._toggle_all_areas(False)).pack(
             side="left", padx=8
         )
-        self._button(actions, "删除全部", self._clear_areas).pack(side="left")
+        self._button(actions, "删除全部", self._clear_areas, icon="trash").pack(side="left")
         self.render_areas()
 
     def pick_region_now(self) -> None:
@@ -828,8 +839,8 @@ class SettingsWindow:
 
         actions = ctk.CTkFrame(page, corner_radius=0, fg_color="transparent")
         actions.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6))
-        self._button(actions, "刷新", self.render_history).pack(side="left")
-        self._button(actions, "清空历史", self.clear_history).pack(side="left", padx=8)
+        self._button(actions, "刷新", self.render_history, icon="refresh").pack(side="left")
+        self._button(actions, "清空历史", self.clear_history, icon="trash").pack(side="left", padx=8)
         self._history_count = ctk.CTkLabel(actions, text="", font=self.f_small, text_color=LABEL)
         self._history_count.pack(side="left", padx=8)
         self.render_history()
@@ -857,10 +868,10 @@ class SettingsWindow:
     def _build_footer(self) -> None:
         row = ctk.CTkFrame(self.card, corner_radius=0, fg_color="transparent")
         row.pack(fill="x", padx=16, pady=(4, 12))
-        self._button(row, "保存并应用", self.save, primary=True, width=120).pack(side="left")
+        self._button(row, "保存并应用", self.save, primary=True, width=130, icon="check").pack(side="left")
         self._button(row, "取消", self.root.destroy, width=90).pack(side="left", padx=8)
-        self._button(row, "打开日志目录", self._open_log_dir, width=120).pack(side="right")
-        self._button(row, "打开配置目录", self._open_config_dir, width=120).pack(side="right", padx=8)
+        self._button(row, "打开日志目录", self._open_log_dir, width=132, icon="doc").pack(side="right")
+        self._button(row, "打开配置目录", self._open_config_dir, width=132, icon="folder").pack(side="right", padx=8)
 
     def _open_config_dir(self) -> None:
         path = app_dir()
