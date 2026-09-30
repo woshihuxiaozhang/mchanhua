@@ -64,6 +64,7 @@ class SettingsWindow:
         history: TranslationHistory | None = None,
         on_history_cleared: Callable[[], None] | None = None,
         preview_opacity: Callable[[float], None] | None = None,
+        on_pick_region: Callable[[], None] | None = None,
     ) -> None:
         self.config = config
         self.on_saved = on_saved
@@ -74,6 +75,8 @@ class SettingsWindow:
         self.on_history_cleared = on_history_cleared
         # 拖透明度滑块时给主窗口做即时预览
         self.preview_opacity = preview_opacity
+        # 「框选新区域」按钮：关掉设置后立刻弹框选遮罩（和 Alt+V 一个效果）
+        self.on_pick_region = on_pick_region
         ctk.set_appearance_mode("dark" if _is_dark(config.ui.background) else "light")
         self.root = ctk.CTkToplevel(parent) if parent is not None else ctk.CTk()
         self.root.title("mchanhua 设置")
@@ -531,12 +534,31 @@ class SettingsWindow:
 
         actions = ctk.CTkFrame(page, corner_radius=0, fg_color="transparent")
         actions.grid(row=2, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 8))
+        self._button(
+            actions,
+            f"框选新区域（{self.config.hotkeys.select_region or 'Alt+V'}）",
+            self.pick_region_now,
+            primary=True,
+        ).pack(side="left", padx=(0, 12))
         self._button(actions, "全部启用", lambda: self._toggle_all_areas(True)).pack(side="left")
         self._button(actions, "全部停用", lambda: self._toggle_all_areas(False)).pack(
             side="left", padx=8
         )
         self._button(actions, "删除全部", self._clear_areas).pack(side="left")
         self.render_areas()
+
+    def pick_region_now(self) -> None:
+        """从设置里直接去框选新区域。
+
+        先关掉设置：框选遮罩是铺满全屏的，设置窗口压在上面会挡着没法框。
+        框完之后回到这一页，每个区域下面就会多出「类型」下拉和「专属热键」输入框。
+        """
+
+        starter = self.on_pick_region
+        self._persist_areas()          # 顺手把这一页刚填的专属热键存下来
+        self.root.destroy()
+        if starter is not None:
+            starter()
 
     def render_areas(self) -> None:
         """把已保存的区域列成一排排可编辑的行。"""
@@ -549,8 +571,11 @@ class SettingsWindow:
         if not names:
             ctk.CTkLabel(
                 self._area_rows,
-                text="还没有区域。在游戏里按 Alt+V 框一个：Enter 保存，Backspace/Esc 结束。",
+                text="还没有区域。点上面的「框选新区域」（或按 Alt+V）框一个：\n"
+                     "Enter 保存成区域，Backspace 撤掉上一个，Esc 结束。\n"
+                     "框好之后回到这一页，每个区域下面会多出「类型」下拉和「专属热键」输入框。",
                 font=self.f_label, text_color=LABEL,
+                justify="left", anchor="w",
             ).pack(anchor="w", pady=8)
             return
         for name in names:
@@ -902,14 +927,15 @@ def open_settings(
     history: TranslationHistory | None = None,
     on_history_cleared: Callable[[], None] | None = None,
     preview_opacity: Callable[[float], None] | None = None,
+    on_pick_region: Callable[[], None] | None = None,
 ) -> None:
     if parent is not None:
         SettingsWindow(config, on_saved, parent=parent,
                        pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
                        history=history, on_history_cleared=on_history_cleared,
-                       preview_opacity=preview_opacity)
+                       preview_opacity=preview_opacity, on_pick_region=on_pick_region)
         return
     SettingsWindow(config, on_saved,
                    pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
                    history=history, on_history_cleared=on_history_cleared,
-                   preview_opacity=preview_opacity).run()
+                   preview_opacity=preview_opacity, on_pick_region=on_pick_region).run()

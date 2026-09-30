@@ -654,6 +654,7 @@ class Application:
             history=self.history,
             on_history_cleared=self.refresh_history,
             preview_opacity=self.preview_opacity,
+            on_pick_region=self.request_select_region,
         )
 
     def preview_opacity(self, value: float) -> None:
@@ -1046,6 +1047,7 @@ class Application:
             if saved:
                 self.window.set_status(
                     f"已保存 {len(saved)} 个区域：{'、'.join(saved)}，按 Ctrl+Alt 一起翻译"
+                    "（设置 →「选区」里能给它们选类型、绑专属热键）"
                 )
             else:
                 self.window.set_status("已取消框选")

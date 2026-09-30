@@ -380,16 +380,68 @@ def test_framing_new_areas_reregisters_hotkeys(workdir: Path, monkeypatch):
 tk = pytest.importorskip("tkinter")
 
 
-def _settings(config: Config):
+def _settings(config: Config, **kwargs):
     from mchanhua.ui.settings_window import SettingsWindow
 
     last: Exception | None = None
     for _ in range(2):
         try:
-            return SettingsWindow(config)
+            return SettingsWindow(config, **kwargs)
         except tk.TclError as exc:
             last = exc
     pytest.skip(f"没有可用的图形环境：{last}")  # pragma: no cover
+
+
+def _all_texts(widget) -> list[str]:
+    found: list[str] = []
+    for child in widget.winfo_children():
+        try:
+            text = child.cget("text")
+        except Exception:
+            text = None
+        if text:
+            found.append(str(text))
+        found.extend(_all_texts(child))
+    return found
+
+
+def test_settings_areas_page_offers_a_framing_button(workdir: Path):
+    """设置里要有能直接去框选的按钮（以前只能靠记热键，用户找不到）。"""
+
+    config = load_config(save_config(Config(), workdir / "config.toml"))
+    started: list[str] = []
+    window = _settings(config, on_pick_region=lambda: started.append("pick"))
+    try:
+        window._show_page("选区")
+        texts = _all_texts(window.card)
+        assert any("框选新区域" in text for text in texts)
+        # 空列表时也要讲清楚"框完才会出现类型/专属热键"
+        assert any("类型" in text and "专属热键" in text for text in texts)
+
+        window.pick_region_now()
+
+        assert started == ["pick"]
+    finally:
+        try:
+            window.root.destroy()
+        except Exception:      # pick_region_now 里已经关掉了
+            pass
+
+
+def test_settings_area_row_shows_type_and_hotkey_once_an_area_exists(workdir: Path):
+    """框过区域之后，每一行下面才会出现「类型」和「专属热键」。"""
+
+    config = load_config(save_config(Config(), workdir / "config.toml"))
+    config.regions.add_area(Region(1, 2, 3, 4), name="物品提示")
+    window = _settings(config)
+    try:
+        window._show_page("选区")
+        texts = _all_texts(window._area_rows)
+        assert "类型" in texts and "专属热键" in texts
+        assert "物品提示" in texts
+        assert "hotkey.area:物品提示" in window._vars
+    finally:
+        window.root.destroy()
 
 
 def test_settings_area_rows_expose_kind_and_hotkey(workdir: Path):

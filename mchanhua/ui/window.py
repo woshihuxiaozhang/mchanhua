@@ -361,12 +361,14 @@ class ResultWindow:
             font=self.f_meta, text_color="#9A9A9A",
         )
         self.status.pack(side="left", fill="x", expand=True)
-        # 只有用户动过译文才露出来（平时不占地方）
+        # 常驻的「保存修正」：以前只在改过译文后才出现，用户根本找不到它。
+        # 改过译文时它会点亮（蓝底），没改时点一下会告诉你怎么用。
         self.correction_button = ctk.CTkButton(
             row, text="保存修正", width=72, height=20, corner_radius=4, font=self.f_meta,
-            fg_color="#E8F0FE", hover_color="#DCE7FB", text_color="#1A73E8",
+            fg_color="transparent", hover_color="#F1F1F1", text_color="#9A9A9A",
             command=self.save_corrections,
         )
+        self.correction_button.pack(side="right", padx=(8, 0))
 
     # ---- 底部按钮 ----
     def _build_buttons(self) -> None:
@@ -727,16 +729,20 @@ class ResultWindow:
         self._show_correction_button()
 
     def _show_correction_button(self) -> None:
+        """用户动过译文：把常驻的「保存修正」点亮。"""
+
         if self._corrections_pending:
             return
         self._corrections_pending = True
-        self.correction_button.pack(side="right", padx=(8, 0))
-        self.set_status("译文可以直接改：改完点「保存修正」写回缓存与术语表")
+        self.correction_button.configure(fg_color="#E8F0FE", text_color="#1A73E8")
+        self.set_status("译文已改：点右边「保存修正」写回缓存与术语表")
 
     def _hide_correction_button(self) -> None:
+        """回到"还没改"的样子（按钮本身一直留着，只是不再高亮）。"""
+
         self._corrections_pending = False
         try:
-            self.correction_button.pack_forget()
+            self.correction_button.configure(fg_color="transparent", text_color="#9A9A9A")
         except Exception:  # pragma: no cover
             pass
 
@@ -760,7 +766,7 @@ class ResultWindow:
 
         result = self._result
         if result is None:
-            self.set_status("还没有译文可以修正")
+            self.set_status("还没有译文：先按热键翻一段，再直接改译文框里的字")
             return
         lines = self.target.get("1.0", "end").splitlines()
         if len(lines) != len(self._target_map):
@@ -771,8 +777,7 @@ class ResultWindow:
             return
         pairs = self.correction_pairs()
         if not pairs:
-            self._hide_correction_button()
-            self.set_status("译文没有变化，不用保存")
+            self.set_status("译文还没改动：直接在译文框里改字，改完再点「保存修正」")
             return
         # 记下改过哪几行：保存之后结果本身也要跟着更新，不然再点一次又会被当成"改了"
         keep = list(result.output_lines)

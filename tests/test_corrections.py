@@ -111,17 +111,22 @@ def _window(callbacks=None):
     pytest.skip(f"没有可用的图形环境：{last}")  # pragma: no cover
 
 
-def test_save_button_only_shows_up_after_editing():
+def test_save_button_is_always_visible_and_lights_up_after_editing():
+    """回归：以前这个按钮要改过译文才出现，用户根本找不到它。"""
+
     window = _window()
     try:
         window.show_result(PipelineResult(source_lines=["Steel Ingot"], output_lines=["钢铁锭"]))
-        assert window.correction_button.winfo_manager() == ""     # 没改之前不露
+        assert window.correction_button.winfo_manager() == "pack"   # 一开始就在
+        assert window.correction_button.cget("fg_color") == "transparent"
+        assert window._corrections_pending is False
 
         window.target.delete("1.0", "end")
         window.target.insert("1.0", "钢锭")
         window.root.update()
 
-        assert window.correction_button.winfo_manager() == "pack"
+        assert window._corrections_pending is True
+        assert window.correction_button.cget("fg_color") == "#E8F0FE"    # 点亮
         assert window.correction_pairs() == [("Steel Ingot", "钢锭")]
     finally:
         window.root.destroy()
@@ -134,7 +139,7 @@ def test_programmatic_result_write_is_not_treated_as_an_edit():
         window.show_result(PipelineResult(source_lines=["Iron Nugget"], output_lines=["铁粒"]))
         window.root.update()
 
-        assert window.correction_button.winfo_manager() == ""
+        assert window._corrections_pending is False
         assert window.correction_pairs() == []
     finally:
         window.root.destroy()
@@ -147,13 +152,13 @@ def test_clear_hides_the_save_button():
         window.target.delete("1.0", "end")
         window.target.insert("1.0", "钢锭")
         window.root.update()
-        assert window.correction_button.winfo_manager() == "pack"
+        assert window._corrections_pending is True
 
         window.show_notice("没有识别到文字")
 
-        assert window.correction_button.winfo_manager() == ""
+        assert window._corrections_pending is False
         assert window.save_corrections() is None      # 没结果时点保存也不能炸
-        assert "还没有译文可以修正" in window.status_text()
+        assert "还没有译文" in window.status_text()
     finally:
         window.root.destroy()
 
@@ -199,8 +204,22 @@ def test_save_corrections_hands_pairs_to_the_controller():
         window.save_corrections()
 
         assert seen == [[("Steel Ingot", "钢锭")]]
-        assert window.correction_button.winfo_manager() == ""      # 存完收起来
+        assert window._corrections_pending is False                # 存完不再高亮
+        assert window.correction_button.winfo_manager() == "pack"  # 但按钮还在
         assert window.correction_pairs() == []                     # 再点不会重复提交
+    finally:
+        window.root.destroy()
+
+
+def test_clicking_save_without_edits_explains_how_to_use_it():
+    """没改过就点「保存修正」：给一句说明，而不是默默什么都不做。"""
+
+    window = _window()
+    try:
+        window.show_result(PipelineResult(source_lines=["Steel Ingot"], output_lines=["钢铁锭"]))
+        window.save_corrections()
+
+        assert "还没改动" in window.status_text()
     finally:
         window.root.destroy()
 
