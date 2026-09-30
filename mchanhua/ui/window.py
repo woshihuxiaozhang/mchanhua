@@ -24,6 +24,9 @@ from mchanhua.ui.titlebar import use_light_title_bar
 FONT_STEPS = (11, 13, 15, 19)
 TRANSPARENT = "#010203"          # 只用来做透明键，不参与主题
 
+# 空闲状态：猫语气，但要让人一眼看懂"下一步干什么"
+IDLE_STATUS = "待取词喵～把鼠标移到物品上按热键"
+
 # 历史翻译浮层：刻意做得比主窗口小、纯白不透明，盖在窗口内容之上
 HISTORY_PANEL_W = 300
 HISTORY_PANEL_H = 230
@@ -172,7 +175,7 @@ class ResultWindow:
         self._build_buttons()
         self._build_meta()
         self._build_text()
-        self.set_status("待取词：把鼠标移到物品上按热键")
+        self.set_status(IDLE_STATUS)
         self._build_history_panel()
         self._fit_text_areas(1, 1)        # 空闲时只留一行高，不留一大片空白
         self._place_window()
@@ -415,7 +418,7 @@ class ResultWindow:
         ctk.CTkButton(bar, text="✕", width=22, height=20, corner_radius=4,
                       fg_color="transparent", hover_color="#DDE3EC", text_color="#5F6368",
                       font=self.f_meta, command=self.toggle_history).pack(side="right", padx=6, pady=4)
-        ctk.CTkLabel(bar, text="最近 20 次 · 退出后清空", font=self.f_meta,
+        ctk.CTkLabel(bar, text="最近 20 次喵 · 退出就清空", font=self.f_meta,
                      text_color="#8A93A5").pack(side="right", padx=2)
 
         self.history_list = ctk.CTkScrollableFrame(panel, corner_radius=0, fg_color="transparent")
@@ -434,7 +437,7 @@ class ResultWindow:
     def _render_history_list(self, entries: list[HistoryEntry]) -> None:
         self._clear_history_list()
         if not entries:
-            ctk.CTkLabel(self.history_list, text="还没有翻译记录", font=self.f_source,
+            ctk.CTkLabel(self.history_list, text="还没有翻译记录喵～", font=self.f_source,
                          text_color="#9AA0A6").pack(anchor="w", padx=6, pady=14)
             return
         for entry in entries:
@@ -490,12 +493,12 @@ class ResultWindow:
                 relx=1.0, x=-HISTORY_PANEL_RIGHT, y=HISTORY_PANEL_TOP, anchor="ne"
             )
             self.history_button.configure(fg_color="#E8F0FE", text_color="#1A73E8")
-            self.set_status("历史翻译：最近 20 次（再点时钟收起，设置里可看全部）")
+            self.set_status("历史翻译喵：最近 20 次（再点时钟收起，设置里能看全部）")
         else:
             self.history_panel.place_forget()
             self.history_button.configure(fg_color="transparent", text_color="#5F6368")
             # 收起后恢复原来的状态文字，别让"历史翻译…"留在状态栏里
-            self.set_status(self._status_before_history or "待取词：把鼠标移到物品上按热键")
+            self.set_status(self._status_before_history or IDLE_STATUS)
         # 只改尺寸、不动位置：挪过窗口之后也不会跳回原位
         self._resize_keep_position(HISTORY_WINDOW_MIN_H if self.history_open else 0)
 
@@ -551,12 +554,12 @@ class ResultWindow:
         if self.collapsed:
             self.source_area.pack_forget()
             # 按钮行不再藏起来：它固定在窗口底部，折叠时也一直点得到
-            self.set_status("已折叠（双击标题行可展开）")
+            self.set_status("已折叠喵（双击标题行展开）")
         else:
             if not self.history_open:      # 正在看历史时别把原文区又塞回来
                 self._side_by_side = False          # 强制重新按当前尺寸排版
                 self._apply_layout()
-            self.set_status("已展开（译文在上，原文在下）")
+            self.set_status("已展开喵（译文在上，原文在下）")
         # 折叠/展开只改尺寸，别把挪过的窗口拉回原位
         self._resize_keep_position(HISTORY_WINDOW_MIN_H if self.history_open else 0)
 
@@ -610,7 +613,7 @@ class ResultWindow:
         self._result = None
         self._target_map = []
         self._hide_correction_button()
-        self.set_status("待取词：把鼠标移到物品上按热键")
+        self.set_status(IDLE_STATUS)
         self._fit_text_areas(1, 1)        # 清空后收回一行高，窗口跟着变矮
 
     def show_notice(self, text: str) -> None:
@@ -632,7 +635,7 @@ class ResultWindow:
         self.source.delete("1.0", "end")
         self.source.insert("1.0", "\n".join(lines))
         self._fit_text_areas(result_lines=1, source_lines=len(lines))
-        self.set_status(f"OCR {elapsed_ms:.0f} ms · 正在翻译…")
+        self.set_status(f"OCR {elapsed_ms:.0f} ms · 正在翻喵…")
 
     def show_result(self, result: PipelineResult) -> None:
         if self.history_open:              # 有新结果就先回到译文视图
@@ -670,7 +673,7 @@ class ResultWindow:
         if getattr(result, "paragraph", ""):
             parts.append("已整理成段")
         if result.warnings:
-            parts.append(f"提示：{result.warnings[0]}")
+            parts.append(f"猫猫提示：{result.warnings[0]}")
         self.set_status(" · ".join(parts))
         self._fit_text_areas(len(target_lines) or 1, len(source_lines) or 1)
 
@@ -737,7 +740,7 @@ class ResultWindow:
             return
         self._corrections_pending = True
         self.correction_button.configure(fg_color="#E8F0FE", text_color="#1A73E8")
-        self.set_status("译文已改：点右边「保存修正」写回缓存与术语表")
+        self.set_status("译文改好啦喵～点右边「保存修正」，猫猫就记牢了")
 
     def _hide_correction_button(self) -> None:
         """回到"还没改"的样子（按钮本身一直留着，只是不再高亮）。"""
@@ -768,18 +771,18 @@ class ResultWindow:
 
         result = self._result
         if result is None:
-            self.set_status("还没有译文：先按热键翻一段，再直接改译文框里的字")
+            self.set_status("还没有译文喵～先按热键翻一段，再直接改译文框里的字")
             return
         lines = self.target.get("1.0", "end").splitlines()
         if len(lines) != len(self._target_map):
             self.set_status(
-                f"行数对不上了（现在 {len(lines)} 行，原本 {len(self._target_map)} 行）："
-                "修正时别增删行，改文字就行"
+                f"行数对不上啦喵（现在 {len(lines)} 行，原本 {len(self._target_map)} 行）："
+                "修正时别增删行，改文字就行哦"
             )
             return
         pairs = self.correction_pairs()
         if not pairs:
-            self.set_status("译文还没改动：直接在译文框里改字，改完再点「保存修正」")
+            self.set_status("译文还没改动哦：直接在译文框里改字喵，改完再点「保存修正」喵")
             return
         # 记下改过哪几行：保存之后结果本身也要跟着更新，不然再点一次又会被当成"改了"
         keep = list(result.output_lines)

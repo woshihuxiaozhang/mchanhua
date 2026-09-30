@@ -56,19 +56,19 @@ class HotkeyPicker:
                             border_width=1, border_color=LINE)
         card.pack(fill="both", expand=True, padx=10, pady=10)
 
-        ctk.CTkLabel(card, text="按住你想要的按键组合", font=self.f_label,
+        ctk.CTkLabel(card, text="按住你想用的按键组合喵", font=self.f_label,
                      text_color=TEXT).pack(anchor="w", padx=16, pady=(14, 2))
         ctk.CTkLabel(
             card,
-            text="可以只按修饰键（如 Ctrl+Alt），也可以加别的键（如 Ctrl+Alt+Q）。"
-                 "松开后再点「确定」。Esc = 取消。",
+            text="只按修饰键（如 Ctrl+Alt）也可以，再加别的键（如 Ctrl+Alt+Q）也行喵～"
+                 "松开后点「确定」就好，Esc 取消。",
             font=self.f_small, text_color=LABEL, justify="left", wraplength=380,
         ).pack(anchor="w", padx=16)
 
         holder = ctk.CTkFrame(card, corner_radius=8, fg_color=FIELD,
                               border_width=1, border_color=LINE)
         holder.pack(fill="x", padx=16, pady=(12, 6))
-        self.display = ctk.CTkLabel(holder, text=describe_hotkey(self.initial) or "（还没按到键）",
+        self.display = ctk.CTkLabel(holder, text=describe_hotkey(self.initial) or "（还没按到键喵）",
                                     font=self.f_big, text_color=TEXT)
         self.display.pack(pady=14)
 
@@ -127,11 +127,11 @@ class HotkeyPicker:
         if candidate:
             self.display.configure(text=describe_hotkey(candidate))
         else:
-            self.display.configure(text="（还没按到键）")
+            self.display.configure(text="（还没按到键喵）")
         if pressed:
-            self.hint.configure(text="按住中：" + describe_hotkey("+".join(pressed)))
+            self.hint.configure(text="按着呐：" + describe_hotkey("+".join(pressed)))
         elif candidate:
-            self.hint.configure(text="松开后点「确定」即可")
+            self.hint.configure(text="松开后点「确定」就好喵")
         else:
             self.hint.configure(text="")
 
@@ -143,7 +143,7 @@ class HotkeyPicker:
     def _accept(self) -> None:
         value = self.tracker.candidate or self.initial
         if not value:
-            self.hint.configure(text="还没有按到任何键：请按住想用的按键组合")
+            self.hint.configure(text="还没按到任何键喵～按住想用的按键组合")
             return
         self.result = value
         self._close()

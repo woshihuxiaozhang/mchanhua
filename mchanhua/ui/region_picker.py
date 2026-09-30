@@ -39,12 +39,12 @@ CANCEL_KEYS = {"backspace", "esc", "escape"}
 
 # 提示按用途分组，一组一行；每个提示是一个带边框的小标签
 HINT_ROWS_SINGLE = (
-    ("拖动鼠标框选", "方向键移动框", "Ctrl+方向键缩放", "Enter 确认"),
-    ("Backspace 或 Esc 取消",),
+    ("拖动鼠标框喵", "方向键挪框喵", "Ctrl+方向键缩放喵", "Enter 确认喵"),
+    ("Backspace 或 Esc 取消喵",),
 )
 HINT_ROWS_MULTI = (
-    ("拖动鼠标框选", "方向键移动框", "Ctrl+方向键缩放", "Enter 确认"),
-    ("Backspace 或 Esc 结束框选", "Delete 删最后一个区域", "数字键 1~9 删对应区域"),
+    ("拖动鼠标框喵", "方向键挪框喵", "Ctrl+方向键缩放喵", "Enter 确认喵"),
+    ("Backspace 或 Esc 结束框选喵", "Delete 删最后一个区域喵", "数字键 1~9 删对应区域喵"),
 )
 
 
@@ -179,7 +179,7 @@ class RegionPicker:
             )
             label = self.canvas.create_text(
                 logical.x + 6, logical.y + 6, anchor="nw", fill="#8A5A00",
-                font=("Microsoft YaHei UI", 12), text=f"{index}. {name}（按 {index} 删）",
+                font=("Microsoft YaHei UI", 12), text=f"{index}. {name}（按 {index} 删喵）",
                 tags=("existing",),
             )
             box = self.canvas.bbox(label)
@@ -195,10 +195,10 @@ class RegionPicker:
 
         parts: list[str] = []
         if self.on_accept is not None:
-            parts.append(f"已有 {len(self.existing)}/{MAX_AREAS} 个区域（黄色虚线框）")
+            parts.append(f"已有 {len(self.existing)}/{MAX_AREAS} 个区域喵（黄色虚线框）")
         elif self.existing:
-            parts.append(f"{len(self.existing)} 个区域（黄色虚线框）")
-        parts.append("游戏里鼠标被锁住时按 M 关掉鼠标拖框，用方向键框")
+            parts.append(f"{len(self.existing)} 个区域喵（黄色虚线框）")
+        parts.append("鼠标被游戏锁住时按 M 关掉拖框，用方向键框喵")
         if extra:
             parts.append(extra)
         self.hint_status.configure(text="　".join(parts))
@@ -270,7 +270,7 @@ class RegionPicker:
         if name == "m":
             self.mouse_enabled = not self.mouse_enabled
             self._set_hint(
-                "鼠标拖框已关闭（只用键盘）" if not self.mouse_enabled else "鼠标拖框已打开"
+                "鼠标拖框关掉啦喵（只用键盘）" if not self.mouse_enabled else "鼠标拖框打开啦喵"
             )
             return
         if name in ("delete", "kp delete") and self.on_remove is not None:
@@ -351,7 +351,7 @@ class RegionPicker:
             # 光标半天没动过 = 鼠标被游戏锁着（点击会打到游戏上），这次不接
             if time.monotonic() - self._cursor_moved_at > MOUSE_IDLE_LIMIT:
                 self.mouse_blocked = True
-                self._set_hint("鼠标像被游戏锁住了：请用方向键移动框，Enter 确认")
+                self._set_hint("鼠标像被游戏锁住了喵：请用方向键挪框，Enter 确认")
                 return
             self._mouse_down = True
             self._mouse_start = (x, y)
@@ -391,7 +391,7 @@ class RegionPicker:
             accepted = self.on_accept(region)
             if accepted is False:
                 # 调用方没收下（例如已经到数量上限）：不复位框，提示一下
-                self._set_hint(f"最多只能有 {MAX_AREAS} 个区域，先删掉一个再框")
+                self._set_hint(f"最多只能有 {MAX_AREAS} 个区域喵，先删掉一个再框")
                 return
             self.accepted += 1
             self._reset_box()

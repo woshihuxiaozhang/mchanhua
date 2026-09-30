@@ -310,7 +310,7 @@ class SettingsWindow:
         self._test_label = ctk.CTkLabel(actions, text="", font=self.f_label, text_color="#5F6368")
         self._test_label.pack(side="left", padx=10)
 
-        ctk.CTkLabel(page, text="API Key 只保存在本机的 config.toml 里：翻译时仅把识别出的文字发给所选服务商。",
+        ctk.CTkLabel(page, text="API Key 只存在本机的 config.toml 里喵：翻译时只把识别出的文字发给所选服务商。",
                      font=self.f_small, text_color=LABEL, anchor="w").grid(
             row=7, column=0, columnspan=2, sticky="w", padx=8, pady=(10, 0)
         )
@@ -353,13 +353,13 @@ class SettingsWindow:
         page = self._make_page("热键")
         ctk.CTkLabel(
             page,
-            text="点「选择按键」按住一个或多个键就能选（只按 Ctrl+Alt 也算，Esc 取消）。"
-                 "也可以点输入框直接按键录制。留空 = 不注册。",
+            text="点「选择按键」，按住一个或多个键就选好啦（只按 Ctrl+Alt 也算喵，Esc 取消）。"
+                 "也可以点输入框直接按键录。留空 = 不注册。",
             font=self.f_small, text_color=LABEL, anchor="w", justify="left", wraplength=600,
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(4, 10))
         self._vars["capture_in_entry"] = tk.BooleanVar(value=True)
         ctk.CTkCheckBox(
-            page, text="在输入框里直接按键录制（关掉后可以手动输入）",
+            page, text="在输入框里直接按键录（关掉后可以手打喵）",
             variable=self._vars["capture_in_entry"], font=self.f_small, text_color=LABEL,
             fg_color=BLUE, hover_color=BLUE, checkbox_width=16, checkbox_height=16,
         ).grid(row=1, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 8))
@@ -510,20 +510,20 @@ class SettingsWindow:
             var = self._vars.get(f"ui.{key}")
             if var is not None:
                 var.set(str(value))
-        messagebox.showinfo("已恢复默认主题", "配色已恢复为默认，点「保存并应用」生效。")
+        messagebox.showinfo("已恢复默认主题喵", "配色换回默认啦喵～点「保存并应用」就生效。")
 
     # ---- 选区（多区域）----
     def _build_areas(self) -> None:
         page = self._make_page("选区")
         ctk.CTkLabel(
             page,
-            text="Ctrl+Alt 会一次翻译所有勾选的区域（整屏只抓一次、OCR 一次）。\n"
-                 "新增区域：在游戏里按 Alt+V 连续框选（Enter 存一个，Delete 撤掉上一个）。\n"
-                 "删除区域：下面每一行右边的「删除」按钮；勾选框只控制「要不要翻译它」。\n"
-                 "每个区域的第二行可以选类型（物品 / 字幕：只影响翻译提示词）"
-                 "和绑一条专属热键（按一下只翻这一块）。\n"
-                 f"最多保存 {MAX_AREAS} 个区域；"
-                 "注意：默认退出程序会清空所有区域（想留着继续用，把 config.toml 里的 "
+            text="Ctrl+Alt 会把勾上的区域一次全翻喵（整屏只抓一次、OCR 一次）。\n"
+                 "加区域：在游戏里按 Alt+V 连续框（Enter 存一个，Delete 撤掉上一个）。\n"
+                 "删区域：下面每行右边的「删除」；勾选框只管「要不要翻它」。\n"
+                 "每个区域第二行能选类型（物品 / 字幕：只影响翻译提示词）"
+                 "和绑专属热键（按一下只翻这一块）。\n"
+                 f"最多存 {MAX_AREAS} 个区域喵；"
+                 "注意：默认退出会清空所有区域（想留着接着用，把 config.toml 里的 "
                  "clear_on_exit 改成 false）。",
             font=self.f_small, text_color=LABEL, anchor="w", justify="left", wraplength=620,
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=8, pady=(4, 8))
@@ -571,9 +571,9 @@ class SettingsWindow:
         if not names:
             ctk.CTkLabel(
                 self._area_rows,
-                text="还没有区域。点上面的「框选新区域」（或按 Alt+V）框一个：\n"
+                text="还没有区域喵～点上面的「框选新区域」（或按 Alt+V）框一个：\n"
                      "Enter 保存成区域，Backspace 撤掉上一个，Esc 结束。\n"
-                     "框好之后回到这一页，每个区域下面会多出「类型」下拉和「专属热键」输入框。",
+                     "框完回到这一页，每个区域下面就会多出「类型」下拉和「专属热键」输入框喵。",
                 font=self.f_label, text_color=LABEL,
                 justify="left", anchor="w",
             ).pack(anchor="w", pady=8)
@@ -664,7 +664,7 @@ class SettingsWindow:
         config = self.collect_areas_only()
         if not config.regions.area_names():
             return
-        if not messagebox.askyesno("删除全部区域", "确定删掉所有已保存的选区吗？"):
+        if not messagebox.askyesno("删除全部区域", "真要把所有存好的选区都删掉喵？"):
             return
         config.regions.fixed.clear()
         config.regions.areas = []
@@ -676,14 +676,14 @@ class SettingsWindow:
         self.render_areas()
 
     def _rename_area_prompt(self, name: str) -> None:
-        dialog = ctk.CTkInputDialog(title="给区域改名", text=f"「{name}」改成：")
+        dialog = ctk.CTkInputDialog(title="给区域改名", text=f"「{name}」改成什么喵？")
         new_name = (dialog.get_input() or "").strip()
         if not new_name:
             return
         try:
             self.collect_areas_only().regions.rename_area(name, new_name)
         except ValueError as exc:
-            messagebox.showerror("改不了名字", str(exc))
+            messagebox.showerror("改不了名字喵", str(exc))
             return
         # 专属热键的输入框键带的是旧名字：热键本身已经跟着区域改名走了，
         # 这里把旧变量丢掉，重建行时会用新名字重新建一个
@@ -711,20 +711,20 @@ class SettingsWindow:
         watch = self.config.watch
         ctk.CTkLabel(
             page,
-            text="连续翻译（守护选区）：开着的时候每隔一小会儿抓一次图、识别一次，\n"
+            text="连续翻译（守护选区）：开着时每隔一小会儿抓一次图、识别一次喵，\n"
                  "只有文字真的变了才去调用翻译接口——看剧情字幕够实时，也不怎么烧额度。\n"
-                 "在小窗标题行点「连续」按钮、或按热键即可开关。",
+                 "点小窗标题行右上的「实时」按钮、或按热键就能开关。",
             font=self.f_small, text_color=LABEL, anchor="w", justify="left", wraplength=620,
         ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 10))
         rows = (
             ("检查间隔（秒）", "interval", watch.interval,
-             "每隔多久抓一次图并识别一次；越小越实时，也越费一点 CPU"),
+             "每隔多久抓一次图并识别一次；越小越实时，也越费一点猫爪力气（CPU）"),
             ("最短翻译间隔（秒）", "min_request_interval", watch.min_request_interval,
-             "两次真的发翻译请求之间至少隔这么久，免得字幕抖一下就狂发请求"),
+             "两次真的发翻译请求之间至少隔这么久，免得字幕一抖就狂发请求喵"),
             ("判定相同的相似度", "similarity", watch.similarity,
-             "0~1：越大越敏感。默认 0.9 = 只有一点点像就当作「没变」，跳过翻译"),
+             "0~1：越大越敏感。默认 0.9 = 只有一点点像就当作「没变」，跳过不翻喵"),
             ("多久后自动降频（次）", "idle_slowdown_after", watch.idle_slowdown_after,
-             "连续这么多次没变化之后，把检查间隔自动拉长一倍，省点资源"),
+             "连着这么多次没变化之后，检查间隔自动拉长一倍，省点力气喵"),
         )
         for index, (label, key, value, hint) in enumerate(rows):
             row = index * 2 + 1
@@ -739,8 +739,8 @@ class SettingsWindow:
         page = self._make_page("历史翻译")
         ctk.CTkLabel(
             page,
-            text="小窗里的时钟按钮只看最近 20 次；这里是全部记录。"
-                 "记录只放在内存里，退出程序后自动清除，不占空间。",
+            text="小窗里的时钟按钮只看最近 20 次喵；这里能看到全部记录。"
+                 "记录只放在内存里，退出程序就清空啦，不占地方。",
             font=self.f_small, text_color=LABEL, anchor="w", justify="left", wraplength=620,
         ).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 8))
 
@@ -770,7 +770,7 @@ class SettingsWindow:
     def clear_history(self) -> None:
         if self.history is None:
             return
-        if not messagebox.askyesno("清空历史", "确定要清空全部历史翻译记录吗？"):
+        if not messagebox.askyesno("清空历史", "真要把翻译记录全清空喵？"):
             return
         removed = self.history.clear()
         self.render_history()
@@ -865,9 +865,9 @@ class SettingsWindow:
             bindings[f"翻译区域「{name}」"] = value
         problems.extend(find_conflicts(bindings, include_overlap=False))
         if not str(self._vars["base_url"].get()).strip():
-            problems.append("接口地址不能为空")
+            problems.append("接口地址不能空着喵")
         if not str(self._vars["model"].get()).strip():
-            problems.append("模型名不能为空")
+            problems.append("模型名不能空着喵")
         for key, label in (
             ("interval", "检查间隔"),
             ("min_request_interval", "最短翻译间隔"),
@@ -877,42 +877,45 @@ class SettingsWindow:
             try:
                 value = float(raw)
             except ValueError:
-                problems.append(f"连续翻译：{label}要填数字（现在是 {raw or '空'}）")
+                problems.append(f"连续翻译：{label}要填数字喵（现在是 {raw or '空的'}）")
                 continue
             if key == "interval" and value <= 0:
-                problems.append(f"连续翻译：{label}要大于 0 秒")
+                problems.append(f"连续翻译：{label}要大于 0 秒喵")
             elif key == "min_request_interval" and value < 0:
-                problems.append(f"连续翻译：{label}不能是负数")
+                problems.append(f"连续翻译：{label}不能是负数喵")
             elif key == "similarity" and not 0 <= value <= 1:
-                problems.append(f"连续翻译：{label}要填 0~1 之间的小数")
+                problems.append(f"连续翻译：{label}要填 0~1 之间的小数喵")
         return problems
 
     def test_connection(self) -> None:
-        self._test_label.configure(text="正在测试…", text_color=LABEL)
+        self._test_label.configure(text="正在问一声喵…", text_color=LABEL)
         self.root.update_idletasks()
         try:
             config = self.collect()
             result = test_connection(config.translate, config.resolved_api_key)
-            self._test_label.configure(text=f"连接正常：{result}", text_color="#1A73E8")
+            self._test_label.configure(text=f"连上啦喵：{result}", text_color="#1A73E8")
         except Exception as exc:  # noqa: BLE001 - 错误显示在界面上
             get_logger().warning("测试连接失败：%s", exc)
-            self._test_label.configure(text=f"失败：{exc}", text_color="#D93025")
+            self._test_label.configure(text=f"没连上喵：{exc}", text_color="#D93025")
 
     def save(self) -> None:
         problems = self.validate()
         if problems:
-            messagebox.showerror("设置有误", "\n".join(problems))
+            messagebox.showerror("设置有误喵", "\n".join(problems))
             return
         config = self.collect()
         try:
             path = save_config(config)
         except Exception as exc:  # noqa: BLE001
-            messagebox.showerror("保存失败", str(exc))
+            messagebox.showerror("没存上喵", str(exc))
             return
         get_logger().info("设置已保存：%s", path)
         if self.on_saved is not None:
             self.on_saved(config)
-        messagebox.showinfo("已保存", f"已保存到：\n{path}\n\n热键与翻译服务立即生效，界面外观重启后生效。")
+        messagebox.showinfo(
+            "已保存喵",
+            f"存好啦，写在这里：\n{path}\n\n热键和翻译服务马上生效，界面外观重启后生效喵～",
+        )
 
     def run(self) -> None:
         self.root.mainloop()

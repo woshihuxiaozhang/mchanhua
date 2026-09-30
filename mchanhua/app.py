@@ -205,7 +205,7 @@ class Application:
         needs_key = preset.needs_key if preset is not None else True
         if needs_key and not api_key:
             label = preset.label if preset is not None else "翻译服务"
-            self.translator_error = f"未配置 {label} 的 API key，只显示 OCR 原文"
+            self.translator_error = f"还没填 {label} 的 API key 喵～先只显示识别到的原文"
             get_logger().warning(self.translator_error)
             return None
         try:
@@ -302,11 +302,11 @@ class Application:
             return
         if region is not None:
             # 刚框完的那一块：单区域
-            self.window.set_status("正在采集并识别…")
+            self.window.set_status("正在采集识别喵…")
             self._capture_after_hiding(lambda: self._start_worker(region, None), region)
             return
         target = self._current_region()
-        self.window.set_status("正在采集并识别…")
+        self.window.set_status("正在采集识别喵…")
         self._capture_after_hiding(lambda: self._start_worker(target, None), target)
 
     def perform_translate_areas(self, areas: list[tuple[str, Region]]) -> None:
@@ -322,7 +322,7 @@ class Application:
             self._queue_pending("region", areas[0][1])
             return
         first = areas[0][1]
-        self.window.set_status(f"正在采集并识别（{len(areas)} 个区域）…")
+        self.window.set_status(f"正在采集识别喵（{len(areas)} 个区域）…")
         self._capture_after_hiding(lambda: self._start_worker(None, None, None, areas), first)
 
     def request_translate_area(self, name: str) -> None:
@@ -334,12 +334,12 @@ class Application:
 
         region = self.config.regions.fixed_region(name)
         if region is None:
-            self.window.set_status(f"区域「{name}」已经不在了（可能被删掉了）")
+            self.window.set_status(f"区域「{name}」已经不在了喵（是不是被删掉啦）")
             return
         try:
             clamped = region.clamp(self.grabber.primary_monitor())
         except ValueError:
-            self.window.set_status(f"区域「{name}」超出屏幕了，重新框一次吧")
+            self.window.set_status(f"区域「{name}」跑到屏幕外啦，重新框一次喵")
             return
         self.perform_translate_areas([(name, clamped)])
 
@@ -353,7 +353,7 @@ class Application:
             self._queue_pending("fullscreen")
             return
         monitor = self.grabber.primary_monitor()
-        self.window.set_status(f"正在全屏识别（{monitor.width}x{monitor.height}）…")
+        self.window.set_status(f"整屏扫一遍喵（{monitor.width}x{monitor.height}）…")
         self._capture_after_hiding(
             lambda: self._start_worker(None, None, FULLSCREEN_MAX_LINES), None
         )
@@ -456,9 +456,9 @@ class Application:
         except Exception as exc:
             self._translate_lock.release()
             get_logger().warning("读取剪贴板图片失败：%s", exc)
-            self.window.set_status(f"读取剪贴板失败：{exc}")
+            self.window.set_status(f"剪贴板没读到喵：{exc}")
             return
-        self.window.set_status("正在识别剪贴板图片…")
+        self.window.set_status("正在看剪贴板里的图喵…")
         threading.Thread(target=self._worker, args=(None, image), daemon=True).start()
 
     def perform_open_image(self) -> None:
@@ -493,7 +493,7 @@ class Application:
         areas = self._current_areas()
         region = None if areas else self._current_region()
         if not areas and region is None:
-            self.window.set_status("连续翻译：还没有选区，先按 Alt+V 框一个区域再开")
+            self.window.set_status("连续翻译喵：还没有选区，先按 Alt+V 框一个再开")
             return False
         self._watch_region = region
         self._watch_areas = areas
@@ -507,7 +507,7 @@ class Application:
         blocked = self._region_hits_window(areas[0][1] if areas else region)
         note = "，小窗挡住了选区（会把自己也拍进去）" if blocked else ""
         self.window.set_status(
-            f"连续翻译中：盯住 {target}{note} · 文字一变就翻 · {self._watch_stop_hint()} 停止"
+            f"连续翻译中喵～盯住 {target}{note} · 文字一变就翻 · {self._watch_stop_hint()} 停"
         )
         get_logger().info(
             "连续翻译模式已开启：%s（间隔 %.1fs，最小请求间隔 %.1fs）",
@@ -536,7 +536,7 @@ class Application:
         self._watch_areas = []
         self._set_watch_button(False)
         if not quiet:
-            self.window.set_status("连续翻译已停止")
+            self.window.set_status("连续翻译已停止喵～想去哪就去哪吧")
         get_logger().info("连续翻译模式已关闭")
 
     def _watch_stop_hint(self) -> str:
@@ -644,7 +644,7 @@ class Application:
 
         from mchanhua.ui.settings_window import open_settings
 
-        self.window.set_status("设置窗口已打开")
+        self.window.set_status("设置窗口开啦喵～")
         open_settings(
             self.config,
             on_saved=self.apply_config,
@@ -707,13 +707,13 @@ class Application:
                 self.translator_error = None
         if self.history.amend_last(pairs):
             self.refresh_history()
-        parts = [f"已保存修正 {len(pairs)} 行"]
+        parts = [f"已保存修正 {len(pairs)} 行喵"]
         if cached:
-            parts.append(f"{cached} 行写回缓存（以后同一句不再问模型）")
+            parts.append(f"{cached} 行写进缓存啦（以后同一句不用再问模型）")
         elif translator is None:
-            parts.append("没有可用的翻译服务，只记了术语表")
+            parts.append("没有可用的翻译服务喵，只记进术语表啦")
         if terms:
-            parts.append("术语表新增/更新 " + "、".join(f"{k}→{v}" for k, v in terms.items()))
+            parts.append("术语表也记上啦：" + "、".join(f"{k}→{v}" for k, v in terms.items()))
         self.window.set_status(" · ".join(parts))
         get_logger().info(
             "手动修正译文：%d 行（缓存 %d 行，术语表 %d 条）", len(pairs), cached, len(terms)
@@ -743,7 +743,7 @@ class Application:
             target=self._register_hotkeys, name="hotkey-reregister", daemon=True
         ).start()
         get_logger().info("设置已应用：热键重新注册，翻译服务已重建")
-        self.window.set_status("设置已更新：热键与翻译服务已生效（界面外观重启后生效）")
+        self.window.set_status("设置已更新喵～热键和翻译服务马上生效（界面外观重启后生效）")
 
     def perform_translate_file(self, path: Path) -> None:
         """翻译一个图片文件。"""
@@ -758,9 +758,9 @@ class Application:
         except Exception as exc:
             self._translate_lock.release()
             get_logger().exception("打开图片失败")
-            self.window.set_status(f"打开图片失败：{exc}")
+            self.window.set_status(f"这张图打不开喵：{exc}")
             return
-        self.window.set_status(f"正在识别图片：{path.name}")
+        self.window.set_status(f"正在看这张图喵：{path.name}")
         threading.Thread(target=self._worker, args=(None, image), daemon=True).start()
 
     def _capture_and_ocr(self, region: Region | None):
@@ -821,8 +821,8 @@ class Application:
         """选区/整屏没识别到文字时的提示语。"""
 
         if region is None:
-            return "没有识别到文字：换个画面或把字调大一点再试"
-        return f"选区内没有识别到文字（{region.to_csv()}），把框拉大一点圈住文字再试"
+            return "没有识别到文字喵～换个画面，或者把字调大一点再试"
+        return f"选区内没有识别到文字喵（{region.to_csv()}），把框拉大点圈住字再试"
 
     def _worker(
         self,
@@ -881,7 +881,7 @@ class Application:
                 dump_last_run(image, ocr_result, result)
             except Exception as exc:
                 get_logger().exception("处理失败")
-                self.queue.put(("status", f"处理失败：{exc}"))
+                self.queue.put(("status", f"这次翻车了喵：{exc}"))
                 return
 
             get_logger().info(
@@ -924,7 +924,7 @@ class Application:
         """上一次还没结束时，把这次请求记下来（只保留最后一次，避免连按堆积）。"""
 
         self._pending_jobs = [(kind, region)]
-        self.window.set_status("上一次取词还没结束，已记下这次请求，结束后自动执行")
+        self.window.set_status("上一次还没翻完喵～已记下这次请求，结束就自动接着翻")
         get_logger().info("上一次取词尚未结束，已排队：%s", kind)
 
     def _drain_pending(self) -> None:
@@ -949,9 +949,9 @@ class Application:
         self.last_region = region
         self.config.regions.set_custom_region(region)
         if self._save_config():
-            self.window.set_status(f"已保存自定义选区 {region.to_csv()}，按 Ctrl+Alt 即可翻译它")
+            self.window.set_status(f"已保存自定义选区 {region.to_csv()} 喵～按 Ctrl+Alt 就能翻它")
         else:
-            self.window.set_status(f"已应用选区 {region.to_csv()}（写入配置文件失败，重启后不保留）")
+            self.window.set_status(f"已应用选区 {region.to_csv()}（配置没写进去喵，重启就不留啦）")
         return region
 
     def _pick_areas(self) -> list[str]:
@@ -965,7 +965,7 @@ class Application:
             if name is None:
                 # 到上限了：不保存、也不复位框，让用户先删一个
                 self.window.set_status(
-                    f"最多只能保存 {MAX_AREAS} 个区域，按数字键或 Delete 删掉一个再框"
+                    f"最多只能保存 {MAX_AREAS} 个区域喵，按数字键或 Delete 删掉一个再框"
                 )
                 return False
             saved.append(name)
@@ -973,7 +973,7 @@ class Application:
             shown.append((name, region))
             if self._save_config():
                 self.window.set_status(
-                    f"已保存「{name}」{region.to_csv()}（可继续框，Backspace/Esc 结束）"
+                    f"已保存「{name}」{region.to_csv()} 喵～可以接着框（Backspace/Esc 结束）"
                 )
             else:
                 get_logger().warning("区域保存失败：%s", region.to_csv())
@@ -984,7 +984,7 @@ class Application:
 
             names = self.config.regions.area_names()
             if not names:
-                self.window.set_status("还没有任何区域，没有可删除的")
+                self.window.set_status("还没有任何区域喵～没得删")
                 return
             remove_area(names[-1])
 
@@ -993,7 +993,7 @@ class Application:
 
             names = self.config.regions.area_names()
             if not 1 <= index <= len(names):
-                self.window.set_status(f"没有第 {index} 个区域")
+                self.window.set_status(f"没有第 {index} 个区域喵")
                 return
             remove_area(names[index - 1])
 
@@ -1003,7 +1003,7 @@ class Application:
                 saved.remove(name)
             shown[:] = [(item, box) for item, box in shown if item != name]
             self._save_config()
-            self.window.set_status(f"已删除「{name}」")
+            self.window.set_status(f"已删除「{name}」喵")
             get_logger().info("框选时删除了区域：%s", name)
 
         pick_region(
@@ -1046,11 +1046,11 @@ class Application:
             saved = self._pick_areas()
             if saved:
                 self.window.set_status(
-                    f"已保存 {len(saved)} 个区域：{'、'.join(saved)}，按 Ctrl+Alt 一起翻译"
-                    "（设置 →「选区」里能给它们选类型、绑专属热键）"
+                    f"已保存 {len(saved)} 个区域喵：{'、'.join(saved)}，按 Ctrl+Alt 一起翻"
+                    "（设置 →「选区」能给它们选类型、绑专属热键）"
                 )
             else:
-                self.window.set_status("已取消框选")
+                self.window.set_status("已取消框选喵～")
         finally:
             self._picking = False
             self._show_after_capture()      # 这一路不抓图，框完就把窗口放回来
@@ -1082,7 +1082,7 @@ class Application:
         region = self._pick_region()
         if region is None:
             self._show_after_capture()      # 取消框选：窗口放回来
-            self.window.set_status("已取消框选")
+            self.window.set_status("已取消框选喵～")
             return
         # 框选时窗口已经藏起来了，这里保持藏着直到抓完图（抓到图后自动恢复），
         # 否则刚框完就把窗口露出来，又会被拍进画面。
@@ -1146,7 +1146,7 @@ class Application:
                 target=self._register_hotkeys, name="hotkey-register", daemon=True
             ).start()
         else:
-            self.window.set_status("就绪：热键已禁用，可点「重新取词」按钮")
+            self.window.set_status("就绪喵～热键关着呢，点「翻译选区」按钮也行")
         logger.info("进入界面主循环")
         self.window.run()
         logger.info("界面退出")
@@ -1199,7 +1199,7 @@ class Application:
         self.hotkeys.start()
         logger.info("热键注册完成：%d 个", registered)
         self.queue.put(
-            ("status", f"就绪：{registered} 个热键已注册，把鼠标移到物品上按热键取词")
+            ("status", f"就绪喵～{registered} 个热键已注册，鼠标移到物品上按热键")
         )
 
     def _on_tk_error(self, exc_type, exc_value, exc_tb) -> None:

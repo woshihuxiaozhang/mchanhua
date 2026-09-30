@@ -13,7 +13,7 @@ from datetime import datetime
 
 DEFAULT_RECENT = 20
 MAX_ENTRIES = 500
-EMPTY_TEXT = "还没有翻译记录"
+EMPTY_TEXT = "还没有翻译记录喵～"
 
 
 @dataclass(frozen=True)

@@ -22,10 +22,10 @@ def normalize_hotkey(text: str) -> str:
 
     parts = [part.strip().lower() for part in text.split("+")]
     if not parts or any(not part for part in parts):
-        raise ValueError(f"热键格式不合法：{text!r}")
+        raise ValueError(f"热键格式不合法喵：{text!r}")
     for part in parts:
         if not TOKEN_PATTERN.match(part):
-            raise ValueError(f"热键包含不支持的按键：{part!r}")
+            raise ValueError(f"热键里有个不支持的按键喵：{part!r}")
     return "+".join(parts)
 
 
@@ -55,7 +55,7 @@ def find_conflicts(bindings: dict[str, str], include_overlap: bool = True) -> li
 
     for hotkey, actions in seen.items():
         if len(actions) > 1:
-            problems.append(f"{hotkey} 被重复设置：{' / '.join(actions)}")
+            problems.append(f"{hotkey} 被重复设置啦喵：{' / '.join(actions)}")
 
     for hotkey, actions in seen.items():
         if not include_overlap:
@@ -65,7 +65,8 @@ def find_conflicts(bindings: dict[str, str], include_overlap: bool = True) -> li
         for other, other_actions in seen.items():
             if other != hotkey and other.startswith(hotkey + "+"):
                 problems.append(
-                    f"{hotkey}（{'/'.join(actions)}）会先于 {other}（{'/'.join(other_actions)}）触发"
+                    f"{hotkey}（{'/'.join(actions)}）会先于 {other}"
+                    f"（{'/'.join(other_actions)}）触发喵，按下去只会生效前面那个"
                 )
     return problems
 
