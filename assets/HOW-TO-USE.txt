@@ -8,9 +8,6 @@ mchanhua · Minecraft 屏幕取词翻译
 
 第一次使用要做的两件事
 ----------------------
-（第一次打开会自动弹一个三步向导，跟着点就行；不想看就点「跳过」，
- 之后想重看：设置窗口左下角的「使用向导」。）
-
 1) 填 API Key
    点小窗右下角的「设置」→「翻译服务」→ 填 API Key → 点「测试连接」确认通 → 「保存并应用」。
    · DeepSeek：https://platform.deepseek.com 申请，便宜、中文好
@@ -66,11 +63,5 @@ regions.clear_on_exit    = true   退出程序时清空已保存的区域（想�
 · 这一行立刻写进本地缓存 → 以后同一句直接用它，不再问模型
 · 改的是短名词（物品名那种）的话，还会一起记进术语表，影响之后所有翻译
 改多了想清掉：删掉 %APPDATA%\mchanhua\cache.sqlite 即可（术语表在 config.toml 的 [glossary] 里）
-
-想让它开机就自动跑
-------------------
-向导最后一步勾上「开机自动启动」即可（设置窗口里左下角「使用向导」也能再进去改）。
-它只在 Windows 的「启动」文件夹里放一个 mchanhua-autostart.cmd，
-想关掉就把那个文件删了，或者回到向导里取消勾选。
 
 更多说明见项目主页的 README：https://github.com/woshihuxiaozhang/mchanhua

@@ -64,7 +64,6 @@ class SettingsWindow:
         history: TranslationHistory | None = None,
         on_history_cleared: Callable[[], None] | None = None,
         preview_opacity: Callable[[float], None] | None = None,
-        on_open_wizard: Callable[[], None] | None = None,
     ) -> None:
         self.config = config
         self.on_saved = on_saved
@@ -75,8 +74,6 @@ class SettingsWindow:
         self.on_history_cleared = on_history_cleared
         # 拖透明度滑块时给主窗口做即时预览
         self.preview_opacity = preview_opacity
-        # 「使用向导」按钮：关掉设置后打开首次使用向导
-        self.on_open_wizard = on_open_wizard
         ctk.set_appearance_mode("dark" if _is_dark(config.ui.background) else "light")
         self.root = ctk.CTkToplevel(parent) if parent is not None else ctk.CTk()
         self.root.title("mchanhua 设置")
@@ -762,17 +759,8 @@ class SettingsWindow:
         row.pack(fill="x", padx=16, pady=(4, 12))
         self._button(row, "保存并应用", self.save, primary=True, width=120).pack(side="left")
         self._button(row, "取消", self.root.destroy, width=90).pack(side="left", padx=8)
-        self._button(row, "使用向导", self.open_wizard, width=90).pack(side="left")
         self._button(row, "打开日志目录", self._open_log_dir, width=120).pack(side="right")
         self._button(row, "打开配置目录", self._open_config_dir, width=120).pack(side="right", padx=8)
-
-    def open_wizard(self) -> None:
-        """先关掉设置，再打开首次使用向导（同一个 Tk root，不能两个模态叠着）。"""
-
-        opener = self.on_open_wizard
-        self.root.destroy()
-        if opener is not None:
-            opener()
 
     def _open_config_dir(self) -> None:
         path = app_dir()
@@ -914,15 +902,14 @@ def open_settings(
     history: TranslationHistory | None = None,
     on_history_cleared: Callable[[], None] | None = None,
     preview_opacity: Callable[[float], None] | None = None,
-    on_open_wizard: Callable[[], None] | None = None,
 ) -> None:
     if parent is not None:
         SettingsWindow(config, on_saved, parent=parent,
                        pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
                        history=history, on_history_cleared=on_history_cleared,
-                       preview_opacity=preview_opacity, on_open_wizard=on_open_wizard)
+                       preview_opacity=preview_opacity)
         return
     SettingsWindow(config, on_saved,
                    pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
                    history=history, on_history_cleared=on_history_cleared,
-                   preview_opacity=preview_opacity, on_open_wizard=on_open_wizard).run()
+                   preview_opacity=preview_opacity).run()
