@@ -289,6 +289,17 @@ class WatchConfig:
     idle_slowdown_after: int = 30       # 连续这么多次没变化后自动降频（省电省资源）
 
 
+@dataclass
+class TermsConfig:
+    """自动术语表：模型翻译时顺手认出的专有名词（人名、地名…）怎么留。
+
+    只在本机留 ttl_hours 小时，过期自动清掉——不占地方，也不用管。
+    """
+
+    auto_learn: bool = True             # 关掉就完全不记
+    ttl_hours: float = 24.0             # 存多久（默认一天一清）
+
+
 CUSTOM_REGION_KEY = "custom"
 # 第一个区域的固定名字（老的"自定义选区"迁移过来就叫这个）
 FIRST_AREA_NAME = "区域1"
@@ -310,6 +321,7 @@ class Config:
     ocr: OcrConfig = field(default_factory=OcrConfig)
     translate: TranslateConfig = field(default_factory=TranslateConfig)
     watch: WatchConfig = field(default_factory=WatchConfig)
+    terms: TermsConfig = field(default_factory=TermsConfig)
     ui: UiConfig = field(default_factory=UiConfig)
     regions: RegionsConfig = field(default_factory=RegionsConfig)
     glossary: dict[str, str] = field(default_factory=dict)
@@ -348,6 +360,8 @@ class Config:
             raise ConfigError(
                 f"watch.idle_slowdown_after 至少为 1：{self.watch.idle_slowdown_after}"
             )
+        if float(self.terms.ttl_hours) < 0:
+            raise ConfigError(f"terms.ttl_hours 不能为负数：{self.terms.ttl_hours}")
         if self.capture.monitor < 0:
             raise ConfigError("capture.monitor 不能为负数")
         if not 0 < self.ui.opacity <= 1:
@@ -450,6 +464,7 @@ def loads(text: str) -> Config:
         ocr=_build(OcrConfig, _section(data, "ocr"), "ocr"),
         translate=_build(TranslateConfig, _section(data, "translate"), "translate"),
         watch=_build(WatchConfig, _section(data, "watch"), "watch"),
+        terms=_build(TermsConfig, _section(data, "terms"), "terms"),
         ui=_build(UiConfig, _section(data, "ui"), "ui"),
         regions=RegionsConfig(
             fixed={str(k): str(v) for k, v in fixed_raw.items()},
@@ -524,7 +539,7 @@ def dumps(config: Config) -> str:
     lines.append("[meta]")
     lines.append(f"version = {int(config.version)}")
     lines.append("")
-    for section in ("hotkeys", "capture", "ocr", "translate", "watch", "ui"):
+    for section in ("hotkeys", "capture", "ocr", "translate", "watch", "terms", "ui"):
         lines.append(f"[{section}]")
         for key, value in asdict(getattr(config, section)).items():
             lines.append(f"{key} = {_dump_scalar(value)}")

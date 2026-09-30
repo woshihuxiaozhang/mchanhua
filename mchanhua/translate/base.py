@@ -30,6 +30,19 @@ def set_area_hint(translator, hint: str) -> None:
         pass
 
 
+def set_extra_glossary(translator, glossary: dict[str, str] | None) -> None:
+    """给翻译器挂一份"临时术语表"（自动学到的专有名词）。
+
+    和用户自己的术语表分开：用户配置里的 [glossary] 优先级更高，
+    这里挂上去的只是"这几天又见过的名字"，过期就自动没了。
+    """
+
+    try:
+        translator.extra_glossary = dict(glossary or {})
+    except AttributeError:  # pragma: no cover - 极少数后端不允许挂属性
+        pass
+
+
 CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]")
 LETTER_PATTERN = re.compile(r"[A-Za-z]")
 

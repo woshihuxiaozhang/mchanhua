@@ -24,7 +24,8 @@ from mchanhua.ocr import create_engine
 from mchanhua.ocr.lines import merge_result
 from mchanhua.ocr.preprocess import enhance
 from mchanhua.pipeline import run_from_ocr
-from mchanhua.translate import TranslationError, create_translator
+from mchanhua.terms import TermStore
+from mchanhua.translate import TranslationError, create_translator, set_extra_glossary
 from mchanhua.ui.region_picker import pick_region
 from mchanhua.ui.theme import heal_theme
 from mchanhua.ui.window import ResultWindow, WindowCallbacks
@@ -76,6 +77,7 @@ class Application:
         self,
         config: Config,
         cache_path: Path | None = None,
+        terms_path: Path | None = None,
         config_path: Path | None = None,
         use_hotkeys: bool = True,
         grabber=None,
@@ -110,6 +112,18 @@ class Application:
         self.hotkeys = HotkeyManager()
         # 翻译历史只放在内存里：退出程序就没了，不落盘、不占空间
         self.history = TranslationHistory()
+        # 自动术语表：模型顺手认出的专有名词，只在本机留一天（过期自动清）
+        self.terms = TermStore(
+            terms_path,
+            ttl_hours=config.terms.ttl_hours,
+        )
+        dropped = self.terms.load()
+        logger.info(
+            "自动术语表：%d 条有效（清掉过期 %d 条，保留 %.1f 小时）",
+            len(self.terms),
+            dropped,
+            config.terms.ttl_hours,
+        )
         self.window = window or ResultWindow(
             config,
             WindowCallbacks(
@@ -655,6 +669,8 @@ class Application:
             on_history_cleared=self.refresh_history,
             preview_opacity=self.preview_opacity,
             on_pick_region=self.request_select_region,
+            terms=self.terms,
+            on_clear_terms=self.clear_learned_terms,
         )
 
     def preview_opacity(self, value: float) -> None:
@@ -837,6 +853,9 @@ class Application:
         capture: Region | None = None
         try:
             translator = self._ensure_translator()
+            # 把自动学到的专有名词挂上去：这批里出现过的才会进提示词（按需注入）
+            if translator is not None and self.config.terms.auto_learn:
+                set_extra_glossary(translator, self.terms.active())
             try:
                 if ocr_result is not None:
                     # 连续翻译模式：文字已经识别好了，直接进翻译，不再抓图/重识别
@@ -893,6 +912,7 @@ class Application:
                 result.ocr_ms,
                 result.translate_ms,
             )
+            self._learn_terms(result.terms)
             # 记进历史（含"本次"），再刷新小窗里的历史面板
             self.history.add(
                 result.source_lines,
@@ -918,6 +938,30 @@ class Application:
         if areas:
             return "多区域 " + "/".join(f"{name} {box.to_csv()}" for name, box in areas)
         return region.to_csv() if region is not None else "整屏"
+
+    # ---- 自动术语表 ----
+    def _learn_terms(self, pairs: list[tuple[str, str]]) -> int:
+        """把本批模型认出的专有名词记下来，下一批就会带上（译法前后一致）。"""
+
+        if not pairs or not self.config.terms.auto_learn:
+            return 0
+        added = self.terms.merge(pairs)
+        dropped = self.terms.save()          # 顺手清掉过期的（默认 24 小时）
+        if added or dropped:
+            get_logger().info(
+                "自动术语表：新记 %d 条，清掉过期 %d 条，现有 %d 条",
+                added,
+                dropped,
+                len(self.terms),
+            )
+        return added
+
+    def clear_learned_terms(self) -> int:
+        """设置里点「清空」时用：把自动学到的词全丢掉。"""
+
+        removed = self.terms.clear()
+        get_logger().info("已清空自动术语表：%d 条", removed)
+        return removed
 
     # ---- 繁忙时的排队 ----
     def _queue_pending(self, kind: str, region: Region | None = None) -> None:

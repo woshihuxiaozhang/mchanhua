@@ -59,6 +59,30 @@ class TranslationCache:
         with self._lock:
             return int(self._connection.execute("SELECT COUNT(*) FROM translations").fetchone()[0])
 
+    def retag_all(self, model: str, prompt_version: str) -> int:
+        """把旧提示词版本的行改挂到当前版本上，返回改了几行。
+
+        提示词改版后如果不这么做，所有缓存行都会变成"未命中"——
+        其中还包括用户手动修正过的译文（那是人家改过一遍的成果，不能丢）。
+        """
+
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT key, source, target FROM translations"
+                " WHERE model = ? AND prompt_version != ?",
+                (model, prompt_version),
+            ).fetchall()
+            for old_key, source, target in rows:
+                self._connection.execute(
+                    "INSERT OR REPLACE INTO translations"
+                    " (key, source, target, model, prompt_version) VALUES (?, ?, ?, ?, ?)",
+                    (cache_key(source, model, prompt_version), source, target, model, prompt_version),
+                )
+                self._connection.execute("DELETE FROM translations WHERE key = ?", (old_key,))
+            if rows:
+                self._connection.commit()
+        return len(rows)
+
     def close(self) -> None:
         with self._lock:
             self._connection.close()

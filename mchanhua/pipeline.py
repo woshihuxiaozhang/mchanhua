@@ -43,6 +43,8 @@ class PipelineResult:
     line_areas: list[str] = field(default_factory=list)
     # 模型顺手整理的"整段通顺译文"（没有就用空串，界面按行显示）
     paragraph: str = ""
+    # 本批里模型认出来的专有名词 [(原文, 译名)]，给自动术语表用
+    terms: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def translated_count(self) -> int:
@@ -110,7 +112,9 @@ def run_from_ocr(
         return result
 
     started = time.perf_counter()
-    translated, paragraph, warnings = _translate_pending(translator, pending, kinds_for_lines)
+    translated, paragraph, warnings, terms = _translate_pending(
+        translator, pending, kinds_for_lines
+    )
     result.translate_ms = (time.perf_counter() - started) * 1000
 
     for index, target in translated.items():
@@ -120,6 +124,7 @@ def run_from_ocr(
     result.warnings.extend(warnings)
     if paragraph:
         result.paragraph = paragraph
+    result.terms = terms
     return result
 
 
@@ -127,7 +132,7 @@ def _translate_pending(
     translator: Translator,
     pending: list[tuple[int, str]],
     kinds_for_lines: list[str],
-) -> tuple[dict[int, str], str, list[str]]:
+) -> tuple[dict[int, str], str, list[str], list[tuple[str, str]]]:
     """按区域类型分批翻译，返回 {行号: 译文}、「整段整理」结果与后端的提示。
 
     只有一种类型（最常见的情况）时就是一次普通请求；
@@ -142,6 +147,7 @@ def _translate_pending(
     translated: dict[int, str] = {}
     paragraph = ""
     warnings: list[str] = []
+    terms: list[tuple[str, str]] = []
     for kind, group in groups.items():
         set_area_hint(translator, hint_for_kind(kind))
         try:
@@ -151,12 +157,13 @@ def _translate_pending(
         for (index, _source), target in zip(group, outputs):
             translated[index] = target
         warnings.extend(getattr(translator, "warnings", []) or [])
+        terms.extend(getattr(translator, "last_terms", []) or [])
         got = getattr(translator, "last_paragraph", "") or ""
         # 物品清单不整理成段（会把一堆名字凑成句子）；字幕的整段译文最有用
         if got and kind != AREA_KIND_ITEM:
             paragraph = got
-    # 分批请求时后端每次调用都会清空 warnings，所以在这里统一收着
-    return translated, paragraph, warnings
+    # 分批请求时后端每次调用都会清空 warnings / last_terms，所以在这里统一收着
+    return translated, paragraph, warnings, terms
 
 
 

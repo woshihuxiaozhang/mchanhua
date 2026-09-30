@@ -65,6 +65,8 @@ class SettingsWindow:
         on_history_cleared: Callable[[], None] | None = None,
         preview_opacity: Callable[[float], None] | None = None,
         on_pick_region: Callable[[], None] | None = None,
+        terms=None,
+        on_clear_terms: Callable[[], int] | None = None,
     ) -> None:
         self.config = config
         self.on_saved = on_saved
@@ -77,6 +79,9 @@ class SettingsWindow:
         self.preview_opacity = preview_opacity
         # 「框选新区域」按钮：关掉设置后立刻弹框选遮罩（和 Alt+V 一个效果）
         self.on_pick_region = on_pick_region
+        # 自动术语表（模型顺手认出的专有名词，只留一天）
+        self.terms = terms
+        self.on_clear_terms = on_clear_terms
         ctk.set_appearance_mode("dark" if _is_dark(config.ui.background) else "light")
         self.root = ctk.CTkToplevel(parent) if parent is not None else ctk.CTk()
         self.root.title("mchanhua 设置")
@@ -315,6 +320,19 @@ class SettingsWindow:
             row=7, column=0, columnspan=2, sticky="w", padx=8, pady=(10, 0)
         )
 
+        # ---- 自动术语表：模型顺手认出的专有名词 ----
+        self._terms_row = ctk.CTkFrame(page, corner_radius=0, fg_color="transparent")
+        self._terms_row.grid(row=8, column=0, columnspan=2, sticky="we", padx=8, pady=(10, 0))
+        self._terms_label = ctk.CTkLabel(
+            self._terms_row, text="", font=self.f_small, text_color=LABEL,
+            anchor="w", justify="left", wraplength=560,
+        )
+        self._terms_label.pack(side="left")
+        self._button(self._terms_row, "清空", self.clear_learned_terms, width=64).pack(
+            side="right", pady=2
+        )
+        self.render_terms()
+
         # ---- 语言：源语言默认自动识别，只固定目标语言 ----
         source_value = (translate.source_language or "").strip()
         if source_value.lower() in ("", "auto", "自动", "自动识别"):
@@ -339,6 +357,24 @@ class SettingsWindow:
     def _toggle_key_visibility(self) -> None:
         self._api_entry.configure(show="" if self._vars["show_key"].get() else "•")
         self._vars["show_key"].set(not self._vars["show_key"].get())
+
+    def render_terms(self) -> None:
+        """自动术语表的说明行：现在有多少条、什么时候会自动清掉。"""
+
+        count = len(self.terms) if self.terms is not None else 0
+        ttl = float(getattr(self.config.terms, "ttl_hours", 24.0))
+        self._terms_label.configure(
+            text=f"自动术语表：翻译时模型顺手认出的专有名词（人名、地名、物品名）会记在这里，"
+                 f"下一批起译法就统一了喵。当前 {count} 条，"
+                 f"{ttl:g} 小时没用到的自动清掉，不会越攒越大。"
+        )
+
+    def clear_learned_terms(self) -> None:
+        if self.on_clear_terms is None:
+            return
+        removed = self.on_clear_terms()
+        self.render_terms()
+        messagebox.showinfo("已清空喵", f"清掉了 {removed} 条自动记下的专有名词。")
 
     def _apply_preset(self) -> None:
         label = self._vars["provider"].get()
@@ -931,14 +967,18 @@ def open_settings(
     on_history_cleared: Callable[[], None] | None = None,
     preview_opacity: Callable[[float], None] | None = None,
     on_pick_region: Callable[[], None] | None = None,
+    terms=None,
+    on_clear_terms: Callable[[], int] | None = None,
 ) -> None:
     if parent is not None:
         SettingsWindow(config, on_saved, parent=parent,
                        pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
                        history=history, on_history_cleared=on_history_cleared,
-                       preview_opacity=preview_opacity, on_pick_region=on_pick_region)
+                       preview_opacity=preview_opacity, on_pick_region=on_pick_region,
+                       terms=terms, on_clear_terms=on_clear_terms)
         return
     SettingsWindow(config, on_saved,
                    pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
                    history=history, on_history_cleared=on_history_cleared,
-                   preview_opacity=preview_opacity, on_pick_region=on_pick_region).run()
+                   preview_opacity=preview_opacity, on_pick_region=on_pick_region,
+                   terms=terms, on_clear_terms=on_clear_terms).run()

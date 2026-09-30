@@ -10,6 +10,7 @@ from typing import Any, Sequence
 import httpx
 
 from mchanhua.translate.base import TranslationError
+from mchanhua.translate.glossary import select_relevant
 from mchanhua.logging_setup import get_logger
 from mchanhua.translate.placeholders import (
     missing_tokens,
@@ -18,7 +19,7 @@ from mchanhua.translate.placeholders import (
     strip_leftover_sentinels,
 )
 
-PROMPT_VERSION = "v6"
+PROMPT_VERSION = "v7"
 
 # 提示词模板：语言对由配置决定（源语言默认"自动识别"），所以这里用占位符
 SYSTEM_PROMPT = """你是游戏文本的翻译，负责把屏幕上的 [[source]]翻译成[[target]]。
@@ -33,6 +34,7 @@ SYSTEM_PROMPT = """你是游戏文本的翻译，负责把屏幕上的 [[source]
 1. 输入是若干行文本，逐行翻译；**输出行数与输入完全一致、顺序一致**，不合并、不拆分、不增删、不加解释。
 2. 只输出一个 JSON 对象：{"lines": [{"i": 0, "src": "原行", "dst": "译文"}, ...]}。
    i 是输入行号（从 0 开始），**必须与输入的序号一一对应**；src 原样抄回该行输入，用于核对。
+   （如果下面另外要求了 paragraph 或 terms 字段，就加在同一个 JSON 对象里。）
 3. 文本里的哨兵字符（\\ue000数字\\ue001）代表格式占位符（颜色码、%s 之类），必须原样保留在译文对应位置，不得翻译、删除或改动。
 4. 已经是[[target]]的行、没有实际词义的文本（纯数字、纯符号），把原文原样放进 dst。
    **但中英混排的行必须照翻**：把其中的英文部分译成[[target]]，本来就已经是[[target]]的
@@ -43,6 +45,21 @@ SYSTEM_PROMPT = """你是游戏文本的翻译，负责把屏幕上的 [[source]
    只有确定是人名、玩家 ID、命令或代码时才保留原文。
 6. 如果内容是 Minecraft 相关（物品、方块、生物、界面），使用[[target]]社区里通行的译法。
 7. 如果下面给了【整段整理】要求，就再补一个 paragraph 字段（整段通顺译文）。
+
+【专有名词】（人名、地名、组织、称号、物品与技能名、地图与作品名）
+- 同一个名字在**整批文本里必须用同一种译法**，不许每行重新决定；下面给了【固定译法】时优先照它。
+- 优先用中文社区通行的译名；找不到通行译名就音译，并把这个音译固定下来。
+- 人名、地名**不要按字面意译**（Mychael 是人名，不许翻成"谁像神"；地名 Blackwood 不是"黑木林"，
+  除非游戏里本来就指的是那片林子）。
+- 称号、外号、职业称呼可以意译（The Butcher → 屠夫）。
+- 同一批里第一次出现时，可以写成「中文（原文）」（例如 米迦勒（Mychael））；
+  后面再出现就只用中文。整批保持同一种写法。
+
+【本批专有名词】（terms 字段）
+- 除了 lines，再补一个 terms 字段，把本批出现的专有名词列出来：
+  {"terms": [{"src": "原文里的写法", "dst": "你用的译名"}, ...]}
+- 只列**专有名词**（人名、地名、组织、物品、技能、地图、称号），不要列普通词，也不要列整句话。
+- 本批没有专有名词就给空数组 []。
 
 【风格示例】
 - 语气要像真人在说话，保留情绪；不要逐字硬译，也不要把语气词都抹掉。
@@ -160,6 +177,9 @@ class OpenAICompatibleTranslator:
         self.target_language = (target_language or TARGET_LANGUAGE_DEFAULT).strip()
         self.source_language = (source_language or "auto").strip()
         self.last_paragraph = ""          # 上一步"整理成段"的结果（没有就是空）
+        # 本批里模型认出来的专有名词 [(原文, 译名)]，给自动术语表用
+        self.last_terms: list[tuple[str, str]] = []
+        self._parsed_terms: list[tuple[str, str]] = []
         self._client = client or httpx.Client(timeout=timeout)
         self.retry_attempts = max(1, int(retry_attempts))
         self.retry_backoff = max(0.0, float(retry_backoff))
@@ -175,6 +195,7 @@ class OpenAICompatibleTranslator:
             return []
         self.warnings = []
         self.last_paragraph = ""
+        self.last_terms = []
         sources = list(lines)
         result = self._request(sources)
 
@@ -194,8 +215,12 @@ class OpenAICompatibleTranslator:
     def _request(self, lines: list[str], correction: bool = False) -> list[str]:
         protected, tables = protect_lines(lines)
         numbered = "\n".join(f"{index}. {text}" for index, text in enumerate(protected))
+        # 术语表按需注入：只带这批文本里真的出现过的词（术语表再长也不撑提示词）
+        merged_glossary = {**(getattr(self, "extra_glossary", None) or {}), **self.glossary}
         system_prompt = build_system_prompt(
-            self.glossary, self.target_language, self.source_language
+            select_relevant(merged_glossary, protected),
+            self.target_language,
+            self.source_language,
         )
         # 区域类型提示（物品区 / 字幕区…）：由 pipeline 按区域挂上来，没有就不加
         area_hint = (getattr(self, "area_hint", "") or "").strip()
@@ -237,7 +262,10 @@ class OpenAICompatibleTranslator:
         except (KeyError, IndexError, ValueError) as exc:
             raise TranslationError(f"翻译服务响应结构异常：{response.text[:300]}") from exc
 
-        return self._parse(content, lines, tables)
+        result = self._parse(content, lines, tables)
+        if not correction:
+            self.last_terms = self._parsed_terms      # 纠错请求只看行，不掺术语
+        return result
 
     def _post_with_retry(self, payload: dict[str, Any], headers: dict[str, str]):
         """网络抖动（连接失败、超时）时自动重试几次——同类工具都是这么做的。
@@ -277,6 +305,8 @@ class OpenAICompatibleTranslator:
             paragraph = parsed.get("paragraph")
             if isinstance(paragraph, str) and paragraph.strip():
                 self.last_paragraph = paragraph.strip()      # 模型顺手给的"整理成段"版本
+            # 本批认出的专有名词：给自动术语表用（下一批统一译法）
+            self._parsed_terms = self._clean_terms(parsed.get("terms"), sources)
 
         result = list(sources)
         seen: set[int] = set()
@@ -307,3 +337,34 @@ class OpenAICompatibleTranslator:
         if mismatched:
             self.warnings.append(f"{len(mismatched)} 行的原文与行号对不上（已按行号对齐）：{mismatched[:5]}")
         return result
+
+    @staticmethod
+    def _clean_terms(raw, sources: list[str]) -> list[tuple[str, str]]:
+        """挑出模型给回来的专有名词：只留"确实出现在本批原文里"的那些。"""
+
+        if not isinstance(raw, list):
+            return []
+        haystack = _normalize_for_check("\n".join(sources))
+        cleaned: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            source = " ".join(str(item.get("src") or "").split())
+            target = " ".join(str(item.get("dst") or "").split())
+            if not source or not target or len(source) > 40 or len(target) > 40:
+                continue
+            if len(source.split()) > 4 or source.endswith((".", "!", "?", "。", "！", "？")):
+                continue                          # 整句不是术语
+            if _normalize_for_check(source) == _normalize_for_check(target):
+                continue                          # 没翻出来（人名原样保留）不收
+            if _normalize_for_check(source) not in haystack:
+                continue                          # 模型编的词：原文里根本没有
+            key = _normalize_for_check(source)
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append((source, target))
+            if len(cleaned) >= 20:                # 一批最多 20 条，别让它无限吐
+                break
+        return cleaned

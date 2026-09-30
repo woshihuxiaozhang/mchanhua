@@ -10,6 +10,7 @@ from mchanhua.translate.base import (
     Translator,
     TranslationError,
     contains_cjk,
+    set_extra_glossary,
     should_translate,
     split_translatable,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "DEFAULT_GLOSSARY",
     "find_preset",
     "guess_provider",
+    "set_extra_glossary",
     "should_translate",
     "split_translatable",
 ]
@@ -48,9 +50,11 @@ class CachingTranslator:
         self.hits = 0
         self.misses = 0
         self.last_paragraph = ""
+        self.last_terms: list[tuple[str, str]] = []
 
     def translate_lines(self, lines: Sequence[str]) -> list[str]:
         sources = list(lines)
+        self.last_terms = []
         result: list[str | None] = [None] * len(sources)
         pending: list[tuple[int, str]] = []
 
@@ -69,6 +73,7 @@ class CachingTranslator:
                 result[index] = target
                 self.cache.put(source, target, self.model, self.prompt_version)
             self.last_paragraph = getattr(self.inner, "last_paragraph", "") or ""
+            self.last_terms = list(getattr(self.inner, "last_terms", []) or [])
 
         return [value if value is not None else source for value, source in zip(result, sources)]
 
@@ -112,4 +117,9 @@ def create_translator(
     if cache_path is None:
         cache_path = Path.home() / ".mchanhua" / "cache.sqlite"
     cache = TranslationCache(cache_path)
+    migrated = cache.retag_all(engine.model, engine.prompt_version)
+    if migrated:
+        from mchanhua.logging_setup import get_logger
+
+        get_logger().info("翻译缓存：把 %d 行从旧提示词版本迁到 %s", migrated, engine.prompt_version)
     return CachingTranslator(engine, cache, engine.model, engine.prompt_version)

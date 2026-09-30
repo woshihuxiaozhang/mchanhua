@@ -103,4 +103,16 @@ def test_builtin_glossary_is_sent_and_user_override_wins(fake_server, workdir):
 
     system_prompt = FakeDeepSeek.requests[-1]["body"]["messages"][0]["content"]
     assert "Redstone=红石粉（自定义）" in system_prompt   # 用户配置覆盖内置
-    assert "Netherite=下界合金" in system_prompt          # 内置术语仍然生效
+    # 术语表按需注入：这批里没出现的词就不塞进提示词（表再长也不撑提示词）
+    assert "Netherite" not in system_prompt
+
+
+def test_glossary_is_injected_only_for_terms_in_this_batch(fake_server, workdir):
+    config = TranslateConfig(base_url=fake_server, api_key="sk-local", cache_enabled=False)
+    translator = create_translator(config, api_key="sk-local", cache_path=workdir / "cache.sqlite")
+
+    translator.translate_lines(["Craft a Netherite Sword"])
+
+    system_prompt = FakeDeepSeek.requests[-1]["body"]["messages"][0]["content"]
+    assert "Netherite=下界合金" in system_prompt           # 出现的术语才带上
+    assert "Redstone=红石" not in system_prompt            # 没出现的不带
