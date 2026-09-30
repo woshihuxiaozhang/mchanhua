@@ -1,6 +1,6 @@
 ; Inno Setup 打包脚本：把 dist\mchanhua 做成安装包
 #define MyAppName "mchanhua 取词翻译"
-#define MyAppVersion "3.0.0"
+#define MyAppVersion "4.0.0"
 #define MyAppPublisher "mchanhua"
 #define MyAppExeName "mchanhua.exe"
 

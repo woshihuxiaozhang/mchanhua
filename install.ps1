@@ -36,7 +36,7 @@ Write-Host '[4/4] registering uninstall entry ...'
 $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\mchanhua'
 New-Item -Path $key -Force | Out-Null
 Set-ItemProperty -Path $key -Name DisplayName -Value 'mchanhua'
-Set-ItemProperty -Path $key -Name DisplayVersion -Value '3.0.0'
+Set-ItemProperty -Path $key -Name DisplayVersion -Value '4.0.0'
 Set-ItemProperty -Path $key -Name Publisher -Value 'mchanhua'
 Set-ItemProperty -Path $key -Name InstallLocation -Value $target
 Set-ItemProperty -Path $key -Name DisplayIcon -Value $exe

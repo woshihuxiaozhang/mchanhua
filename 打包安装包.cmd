@@ -44,6 +44,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Done. Output: dist\mchanhua-3.0.0-setup.exe
-dir /b "dist\mchanhua-3.0.0-setup.exe"
+echo Done. Output: dist\mchanhua-4.0.0-setup.exe
+dir /b "dist\mchanhua-4.0.0-setup.exe"
 pause

@@ -47,10 +47,28 @@ def _settle(picker, timeout: float = 3.0) -> None:
         time.sleep(0.02)
 
 
-def _press(picker, *keysyms: str) -> None:
-    for keysym in keysyms:
-        picker.root.event_generate("<KeyPress>", keysym=keysym)
-    picker.root.update()
+def _press(picker, *keysyms: str, timeout: float = 2.0) -> None:
+    """把按键事件送进对话框。
+
+    这台机器上 Tk 偶尔会漏掉一两个 event_generate（3 键组合因此偶发失败），
+    所以一直重发到"按下集合里全都有"为止（press 是幂等的，重复发没有副作用）。
+    """
+
+    from mchanhua.ui.hotkey_capture import keysym_to_press_token
+
+    wanted = {
+        token for token in (keysym_to_press_token(keysym) for keysym in keysyms) if token
+    }
+    deadline = time.monotonic() + timeout
+    while True:
+        for keysym in keysyms:
+            picker.root.event_generate("<KeyPress>", keysym=keysym)
+        picker.root.update()
+        if wanted <= set(picker.tracker.pressed):
+            return
+        if time.monotonic() >= deadline:
+            return
+        time.sleep(0.02)
 
 
 def test_picker_returns_modifier_only_combo():
