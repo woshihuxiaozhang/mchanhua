@@ -8,9 +8,26 @@ from typing import Callable, Sequence
 
 from PIL import Image
 
+from mchanhua.config import AREA_KIND_ITEM, AREA_KIND_SUBTITLE
 from mchanhua.geometry import Region
 from mchanhua.ocr.base import OcrEngine
-from mchanhua.translate.base import Translator, split_translatable
+from mchanhua.translate.base import Translator, set_area_hint, split_translatable
+
+# 区域类型 → 给模型的额外说明。没列出来的类型（「其他」）按默认风格翻译。
+AREA_HINTS = {
+    AREA_KIND_ITEM: (
+        "这些行来自游戏里的物品提示框/配方表，都是物品、方块、生物或材料的名字。"
+        "译名要短、是名词，用 Minecraft 中文版社区通用的叫法，不要加语气词、不要凑成句子。"
+    ),
+    AREA_KIND_SUBTITLE: (
+        "这些行来自游戏剧情字幕/对话框/NPC 台词，是成句的话。"
+        "按口语来译，保留情绪与语气，被 OCR 切碎的行要接回通顺的整句。"
+    ),
+}
+
+
+def hint_for_kind(kind: str | None) -> str:
+    return AREA_HINTS.get((kind or "").strip(), "")
 
 
 
@@ -57,16 +74,19 @@ def run_from_ocr(
     on_ocr: Callable[[list[str], float], None] | None = None,
     max_lines: int | None = None,
     line_areas: list[str] | None = None,
+    line_kinds: list[str] | None = None,
 ) -> PipelineResult:
     """拿着已经识别好的结果继续做翻译（供"自动扩边重识别"复用）。"""
 
     source_lines = [line.text for line in ocr_result.lines]
     areas_for_lines = list(line_areas or [])
+    kinds_for_lines = list(line_kinds or [])
     truncated = 0
     if max_lines is not None and len(source_lines) > max_lines:
         truncated = len(source_lines) - max_lines
         source_lines = source_lines[:max_lines]
         areas_for_lines = areas_for_lines[:max_lines]
+        kinds_for_lines = kinds_for_lines[:max_lines]
     if on_ocr is not None:
         on_ocr(source_lines, ocr_result.elapsed_ms)
 
@@ -90,18 +110,53 @@ def run_from_ocr(
         return result
 
     started = time.perf_counter()
-    translated = translator.translate_lines([text for _, text in pending])
+    translated, paragraph, warnings = _translate_pending(translator, pending, kinds_for_lines)
     result.translate_ms = (time.perf_counter() - started) * 1000
 
-    for (index, source), target in zip(pending, translated):
+    for index, target in translated.items():
         result.output_lines[index] = target
-        if target.strip() == source.strip():
+        if target.strip() == source_lines[index].strip():
             result.warnings.append(f"第 {index + 1} 行疑似未翻译")
-    result.warnings.extend(getattr(translator, "warnings", []) or [])
-    paragraph = getattr(translator, "last_paragraph", "") or ""
+    result.warnings.extend(warnings)
     if paragraph:
         result.paragraph = paragraph
     return result
+
+
+def _translate_pending(
+    translator: Translator,
+    pending: list[tuple[int, str]],
+    kinds_for_lines: list[str],
+) -> tuple[dict[int, str], str, list[str]]:
+    """按区域类型分批翻译，返回 {行号: 译文}、「整段整理」结果与后端的提示。
+
+    只有一种类型（最常见的情况）时就是一次普通请求；
+    物品区和字幕区混在一起时分成两批，各自带上对应的提示词，效果更贴。
+    """
+
+    groups: dict[str, list[tuple[int, str]]] = {}
+    for index, text in pending:
+        kind = kinds_for_lines[index] if index < len(kinds_for_lines) else ""
+        groups.setdefault(kind, []).append((index, text))
+
+    translated: dict[int, str] = {}
+    paragraph = ""
+    warnings: list[str] = []
+    for kind, group in groups.items():
+        set_area_hint(translator, hint_for_kind(kind))
+        try:
+            outputs = translator.translate_lines([text for _, text in group])
+        finally:
+            set_area_hint(translator, "")
+        for (index, _source), target in zip(group, outputs):
+            translated[index] = target
+        warnings.extend(getattr(translator, "warnings", []) or [])
+        got = getattr(translator, "last_paragraph", "") or ""
+        # 物品清单不整理成段（会把一堆名字凑成句子）；字幕的整段译文最有用
+        if got and kind != AREA_KIND_ITEM:
+            paragraph = got
+    # 分批请求时后端每次调用都会清空 warnings，所以在这里统一收着
+    return translated, paragraph, warnings
 
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
+from functools import partial
 from pathlib import Path
 
 from PIL import Image
@@ -145,6 +146,8 @@ class Application:
             return 0
         self.config.regions.fixed.clear()
         self.config.regions.areas = []
+        self.config.regions.area_hotkeys.clear()
+        self.config.regions.area_kinds.clear()
         self._save_config()
         get_logger().info("退出前清空了 %d 个区域：%s", len(names), "、".join(names))
         return len(names)
@@ -159,6 +162,8 @@ class Application:
             return
         self.config.regions.fixed.clear()
         self.config.regions.areas = []
+        self.config.regions.area_hotkeys.clear()
+        self.config.regions.area_kinds.clear()
         self._save_config()
         get_logger().warning(
             "上次退出时没清掉的 %d 个区域（%s）已补清", len(names), "、".join(names)
@@ -262,6 +267,12 @@ class Application:
         if self._picking:
             get_logger().info("正在框选，忽略这次取词")
             return
+        if region is None:
+            areas = self._current_areas()
+            if areas:
+                # 多区域：一次抓屏 + 一次 OCR，按区域筛行后合成一次翻译
+                # （锁由 perform_translate_areas 去拿，别在这里先拿着）
+                return self.perform_translate_areas(areas)
         if not self._translate_lock.acquire(blocking=False):
             self._queue_pending("region", region)
             return
@@ -270,18 +281,43 @@ class Application:
             self.window.set_status("正在采集并识别…")
             self._capture_after_hiding(lambda: self._start_worker(region, None), region)
             return
-        areas = self._current_areas()
-        if areas:
-            # 多区域：一次抓屏 + 一次 OCR，按区域筛行后合成一次翻译
-            first = areas[0][1]
-            self.window.set_status(f"正在采集并识别（{len(areas)} 个区域）…")
-            self._capture_after_hiding(
-                lambda: self._start_worker(None, None, None, areas), first
-            )
-            return
         target = self._current_region()
         self.window.set_status("正在采集并识别…")
         self._capture_after_hiding(lambda: self._start_worker(target, None), target)
+
+    def perform_translate_areas(self, areas: list[tuple[str, Region]]) -> None:
+        """翻译指定的若干区域：整屏只抓一次、OCR 一次，按区域筛行后合并成一次翻译。"""
+
+        if self._picking:
+            get_logger().info("正在框选，忽略这次取词")
+            return
+        if not areas:
+            self.perform_translate()
+            return
+        if not self._translate_lock.acquire(blocking=False):
+            self._queue_pending("region", areas[0][1])
+            return
+        first = areas[0][1]
+        self.window.set_status(f"正在采集并识别（{len(areas)} 个区域）…")
+        self._capture_after_hiding(lambda: self._start_worker(None, None, None, areas), first)
+
+    def request_translate_area(self, name: str) -> None:
+        get_logger().info("热键触发：翻译区域「%s」", name)
+        self.queue.put(("call", lambda: self.perform_translate_area(name)))
+
+    def perform_translate_area(self, name: str) -> None:
+        """只翻译某一个区域（给「每个区域绑自己的热键」用）。"""
+
+        region = self.config.regions.fixed_region(name)
+        if region is None:
+            self.window.set_status(f"区域「{name}」已经不在了（可能被删掉了）")
+            return
+        try:
+            clamped = region.clamp(self.grabber.primary_monitor())
+        except ValueError:
+            self.window.set_status(f"区域「{name}」超出屏幕了，重新框一次吧")
+            return
+        self.perform_translate_areas([(name, clamped)])
 
     def perform_translate_fullscreen(self) -> None:
         """全屏翻译：整屏识别后翻译，行数超过上限时只翻前若干行。"""
@@ -632,7 +668,7 @@ class Application:
         self.translator = None
         self.translator_error = None
         self.hotkeys.stop()
-        self.hotkeys = HotkeyManager()
+        self.hotkeys = self._new_hotkey_manager()
         threading.Thread(
             target=self._register_hotkeys, name="hotkey-reregister", daemon=True
         ).start()
@@ -769,6 +805,8 @@ class Application:
                     on_ocr=lambda lines, ms: self.queue.put(("ocr", lines, ms)),
                     max_lines=max_lines,
                     line_areas=line_areas,
+                    # 区域类型只影响提示词：物品区要短、用通用译名，字幕区要口语化
+                    line_kinds=[self.config.regions.kind_of(name) for name in line_areas],
                 )
                 dump_last_run(image, ocr_result, result)
             except Exception as exc:
@@ -945,6 +983,24 @@ class Application:
         finally:
             self._picking = False
             self._show_after_capture()      # 这一路不抓图，框完就把窗口放回来
+            self._refresh_hotkeys_after_area_change()
+
+    def _refresh_hotkeys_after_area_change(self) -> None:
+        """Alt+V 可能新增区或删掉区域：专属热键要跟着变（被删的区域不能再按）。"""
+
+        if not self.use_hotkeys:
+            return
+        self.hotkeys.stop()
+        self.hotkeys = self._new_hotkey_manager()
+        threading.Thread(
+            target=self._register_hotkeys, name="hotkey-after-areas", daemon=True
+        ).start()
+        get_logger().info("区域有变动，已重新注册热键")
+
+    def _new_hotkey_manager(self) -> HotkeyManager:
+        """建一个新的热键管理器（测试里替换成记录用的替身）。"""
+
+        return HotkeyManager()
 
     def perform_select_and_translate(self) -> None:
         """框选后立即翻译该选区（Alt+/）。**不保存**选区，避免覆盖 Alt+V 设定的区域。"""
@@ -1046,7 +1102,7 @@ class Application:
         logger = get_logger()
         bindings = self.config.hotkeys
         registered = 0
-        for action, hotkey, callback in (
+        entries = [
             ("翻译自定义选区", bindings.translate, self.request_translate),
             ("框选并翻译", bindings.translate_region, self.request_translate_region),
             ("全屏翻译", bindings.translate_fullscreen, self.request_translate_fullscreen),
@@ -1054,7 +1110,13 @@ class Application:
             ("只框选选区", bindings.select_region, self.request_select_region),
             ("连续翻译模式", bindings.watch, self.request_toggle_watch),
             ("退出", bindings.quit, self.quit),
-        ):
+        ]
+        # 每个区域自己绑的热键：按一下只翻这一块
+        for name, hotkey in self.config.regions.area_hotkeys.items():
+            entries.append(
+                (f"翻译区域「{name}」", hotkey, partial(self.request_translate_area, name))
+            )
+        for action, hotkey, callback in entries:
             if not (hotkey or "").strip():
                 continue          # 留空 = 不注册这个热键
             try:

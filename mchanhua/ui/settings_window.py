@@ -14,7 +14,7 @@ from typing import Callable
 
 import customtkinter as ctk
 
-from mchanhua.config import MAX_AREAS, Config, save_config
+from mchanhua.config import AREA_KINDS, MAX_AREAS, Config, save_config
 from mchanhua.history import TranslationHistory, render_entries
 from mchanhua.hotkey import find_conflicts, normalize_hotkey
 from mchanhua.logging_setup import get_logger
@@ -425,10 +425,10 @@ class SettingsWindow:
     def _set_hotkey_var(self, key: str, value: str) -> None:
         self._vars[f"hotkey.{key}"].set(value)
 
-    def _pick_hotkey(self, key: str) -> None:
+    def _pick_hotkey(self, key: str, label: str | None = None) -> None:
         """弹「选择按键」对话框，把选好的组合写回这一行。"""
 
-        label = dict(HOTKEY_LABELS).get(key, key)
+        label = label or dict(HOTKEY_LABELS).get(key, key)
         current = str(self._vars[f"hotkey.{key}"].get()).strip()
         chosen = pick_hotkey(
             self.root,
@@ -517,6 +517,8 @@ class SettingsWindow:
             text="Ctrl+Alt 会一次翻译所有勾选的区域（整屏只抓一次、OCR 一次）。\n"
                  "新增区域：在游戏里按 Alt+V 连续框选（Enter 存一个，Delete 撤掉上一个）。\n"
                  "删除区域：下面每一行右边的「删除」按钮；勾选框只控制「要不要翻译它」。\n"
+                 "每个区域的第二行可以选类型（物品 / 字幕：只影响翻译提示词）"
+                 "和绑一条专属热键（按一下只翻这一块）。\n"
                  f"最多保存 {MAX_AREAS} 个区域；"
                  "注意：默认退出程序会清空所有区域（想留着继续用，把 config.toml 里的 "
                  "clear_on_exit 改成 false）。",
@@ -539,6 +541,7 @@ class SettingsWindow:
     def render_areas(self) -> None:
         """把已保存的区域列成一排排可编辑的行。"""
 
+        self._collect_area_hotkeys()      # 先把输入框里刚敲的热键收进配置，免得重建时丢掉
         for child in list(self._area_rows.winfo_children()):
             child.destroy()
         config = self.collect_areas_only()
@@ -551,8 +554,10 @@ class SettingsWindow:
             ).pack(anchor="w", pady=8)
             return
         for name in names:
-            row = ctk.CTkFrame(self._area_rows, corner_radius=6, fg_color=FIELD)
-            row.pack(fill="x", pady=4)
+            block = ctk.CTkFrame(self._area_rows, corner_radius=6, fg_color=FIELD)
+            block.pack(fill="x", pady=4)
+            row = ctk.CTkFrame(block, corner_radius=0, fg_color="transparent")
+            row.pack(fill="x")
             enabled = tk.BooleanVar(value=name in config.regions.areas)
             ctk.CTkCheckBox(
                 row, text="", variable=enabled, width=24, checkbox_width=18, checkbox_height=18,
@@ -570,6 +575,45 @@ class SettingsWindow:
             self._button(row, "改名", lambda n=name: self._rename_area_prompt(n), width=56).pack(
                 side="right", pady=6
             )
+            self._build_area_extras(block, name)
+
+    def _build_area_extras(self, parent, name: str) -> None:
+        """每个区域的第二行：类型（影响提示词）+ 只翻这一块的专属热键。"""
+
+        row = ctk.CTkFrame(parent, corner_radius=0, fg_color="transparent")
+        row.pack(fill="x", padx=8, pady=(0, 8))
+        ctk.CTkLabel(row, text="类型", font=self.f_small, text_color=LABEL).pack(side="left")
+        kind_var = tk.StringVar(value=self.config.regions.kind_of(name))
+        ctk.CTkComboBox(
+            row, variable=kind_var, values=list(AREA_KINDS), width=88, height=28,
+            corner_radius=6, font=self.f_small, state="readonly", fg_color=CARD,
+            border_color=LINE, button_color=CARD, text_color=TEXT,
+            dropdown_fg_color=CARD, dropdown_text_color=TEXT,
+            command=lambda value, n=name: self._set_area_kind(n, value),
+        ).pack(side="left", padx=(4, 12))
+        ctk.CTkLabel(row, text="专属热键", font=self.f_small, text_color=LABEL).pack(side="left")
+        key = f"area:{name}"
+        entry = self._field(row, f"hotkey.{key}", self.config.regions.hotkey_of(name), width=120)
+        entry.pack(side="left", padx=(4, 6))
+        self._bind_entry_capture(entry, key)
+        self._button(
+            row, "选择按键", lambda k=key, n=name: self._pick_hotkey(k, f"翻译区域「{n}」"), width=88
+        ).pack(side="left")
+
+    def _set_area_kind(self, name: str, kind: str) -> None:
+        self.config.regions.set_area_kind(name, kind)
+        self._persist_areas()
+        get_logger().info("区域「%s」类型改成：%s", name, self.config.regions.kind_of(name))
+
+    def _collect_area_hotkeys(self) -> None:
+        """把「专属热键」输入框里的值收进配置（重建行、保存、校验前都要先收一次）。"""
+
+        for key, var in list(self._vars.items()):
+            if not key.startswith("hotkey.area:"):
+                continue
+            name = key[len("hotkey.area:"):]
+            if name in self.config.regions.fixed:
+                self.config.regions.set_area_hotkey(name, str(var.get()).strip())
 
     def _set_area_enabled(self, name: str, enabled: bool) -> None:
         self.collect_areas_only().regions.set_area_enabled(name, enabled)
@@ -586,6 +630,7 @@ class SettingsWindow:
     def _remove_area(self, name: str) -> None:
         config = self.collect_areas_only()
         config.regions.remove_area(name)
+        self._vars.pop(f"hotkey.area:{name}", None)
         self._persist_areas()
         self.render_areas()
         get_logger().info("已删除区域：%s", name)
@@ -598,6 +643,10 @@ class SettingsWindow:
             return
         config.regions.fixed.clear()
         config.regions.areas = []
+        config.regions.area_hotkeys.clear()
+        config.regions.area_kinds.clear()
+        for key in [k for k in self._vars if k.startswith("hotkey.area:")]:
+            self._vars.pop(key, None)
         self._persist_areas()
         self.render_areas()
 
@@ -611,12 +660,16 @@ class SettingsWindow:
         except ValueError as exc:
             messagebox.showerror("改不了名字", str(exc))
             return
+        # 专属热键的输入框键带的是旧名字：热键本身已经跟着区域改名走了，
+        # 这里把旧变量丢掉，重建行时会用新名字重新建一个
+        self._vars.pop(f"hotkey.area:{name}", None)
         self._persist_areas()
         self.render_areas()
 
     def _persist_areas(self) -> None:
         """区域是"在游戏里框完就生效"的东西，设置里改动也立刻落盘，免得以为删了其实没删。"""
 
+        self._collect_area_hotkeys()
         try:
             save_config(self.config)
         except Exception:  # pragma: no cover - 磁盘异常
@@ -733,6 +786,7 @@ class SettingsWindow:
         for key, _label in HOTKEY_LABELS:
             value = str(self._vars[f"hotkey.{key}"].get()).strip()
             setattr(config.hotkeys, key, value)
+        self._collect_area_hotkeys()          # 每个区域的专属热键
         for key in ("width", "height", "source_font_size", "result_font_size", "padding"):
             raw = str(self._vars[f"ui.{key}"].get()).strip()
             if raw.isdigit():
@@ -771,6 +825,19 @@ class SettingsWindow:
                 problems.append(f"{label}：{exc}")
                 continue
             bindings[label] = value
+        for name in self.config.regions.area_names():
+            var = self._vars.get(f"hotkey.area:{name}")
+            if var is None:
+                continue
+            value = str(var.get()).strip()
+            if not value:
+                continue
+            try:
+                normalize_hotkey(value)
+            except ValueError as exc:
+                problems.append(f"翻译区域「{name}」：{exc}")
+                continue
+            bindings[f"翻译区域「{name}」"] = value
         problems.extend(find_conflicts(bindings, include_overlap=False))
         if not str(self._vars["base_url"].get()).strip():
             problems.append("接口地址不能为空")

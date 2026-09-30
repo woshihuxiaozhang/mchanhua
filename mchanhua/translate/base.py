@@ -16,6 +16,20 @@ class Translator(Protocol):
     def translate_lines(self, lines: Sequence[str]) -> list[str]: ...
 
 
+def set_area_hint(translator, hint: str) -> None:
+    """给翻译器挂一条「这批文本来自什么区域」的提示。
+
+    物品区与字幕区要的译法不一样（前者要短、用通用译名；后者要口语化），
+    但又不能给 translate_lines 硬加参数——所有测试替身和后端都得跟着改。
+    所以挂成一个可选属性：后端愿意用就用，不认识的直接忽略。
+    """
+
+    try:
+        translator.area_hint = hint or ""
+    except AttributeError:  # pragma: no cover - 极少数后端不允许挂属性
+        pass
+
+
 CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]")
 LETTER_PATTERN = re.compile(r"[A-Za-z]")
 

@@ -194,6 +194,10 @@ class OpenAICompatibleTranslator:
         system_prompt = build_system_prompt(
             self.glossary, self.target_language, self.source_language
         )
+        # 区域类型提示（物品区 / 字幕区…）：由 pipeline 按区域挂上来，没有就不加
+        area_hint = (getattr(self, "area_hint", "") or "").strip()
+        if area_hint:
+            system_prompt += f"\n\n【这一批文本的特点】\n{area_hint}"
         if self.humanize and not correction:
             system_prompt += HUMANIZE_NOTE
         if correction:

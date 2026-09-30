@@ -156,6 +156,10 @@ class RegionsConfig:
     follow_cursor: str | None = "-280,-20,560,440"
     # 参与翻译的区域（按顺序、只留启用的）。停用的区域仍留在 fixed 里，方便随时开回来。
     areas: list[str] = field(default_factory=list)
+    # 每个区域可以单独绑一个热键（留空 = 没有），按一下只翻这一块
+    area_hotkeys: dict[str, str] = field(default_factory=dict)
+    # 每个区域的类型（字幕 / 物品 / 其他）：只影响翻译时的提示词，不影响抓图
+    area_kinds: dict[str, str] = field(default_factory=dict)
     # 退出程序就把保存的区域清掉（用户要求：不想留下上次框的区域）
     clear_on_exit: bool = True
 
@@ -204,6 +208,8 @@ class RegionsConfig:
     def remove_area(self, name: str) -> None:
         self.fixed.pop(name, None)
         self.areas = [item for item in self.areas if item != name]
+        self.area_hotkeys.pop(name, None)
+        self.area_kinds.pop(name, None)
 
     def rename_area(self, old: str, new: str) -> str:
         """改名（保留原有顺序与启用状态）。返回最终使用的名字。"""
@@ -216,6 +222,9 @@ class RegionsConfig:
         if old in self.fixed:
             self.fixed[new] = self.fixed.pop(old)
         self.areas = [new if item == old else item for item in self.areas]
+        for table in (self.area_hotkeys, self.area_kinds):
+            if old in table:
+                table[new] = table.pop(old)
         return new
 
     def set_area_enabled(self, name: str, enabled: bool) -> None:
@@ -225,6 +234,37 @@ class RegionsConfig:
             self.areas.append(name)
         elif not enabled:
             self.areas = [item for item in self.areas if item != name]
+
+    def kind_of(self, name: str) -> str:
+        """这个区域是什么类型（没设或设了不认识的值都当「其他」）。"""
+
+        kind = (self.area_kinds.get(name) or "").strip()
+        return kind if kind in AREA_KINDS else AREA_KIND_GENERIC
+
+    def set_area_kind(self, name: str, kind: str) -> None:
+        """设置区域类型；「其他」是默认值，不用存进配置。"""
+
+        if name not in self.fixed:
+            return
+        kind = (kind or "").strip()
+        if not kind or kind not in AREA_KINDS or kind == AREA_KIND_GENERIC:
+            self.area_kinds.pop(name, None)
+        else:
+            self.area_kinds[name] = kind
+
+    def hotkey_of(self, name: str) -> str:
+        """这个区域自己绑的热键（没有就是空串）。"""
+
+        return (self.area_hotkeys.get(name) or "").strip()
+
+    def set_area_hotkey(self, name: str, hotkey: str) -> None:
+        if name not in self.fixed:
+            return
+        value = (hotkey or "").strip()
+        if value:
+            self.area_hotkeys[name] = value
+        else:
+            self.area_hotkeys.pop(name, None)
 
     def custom_region(self) -> Region | None:
         """用户框选并保存下来的自定义选区（v2 的主用选区）。"""
@@ -254,6 +294,11 @@ CUSTOM_REGION_KEY = "custom"
 FIRST_AREA_NAME = "区域1"
 # 最多保存几个区域（用户要求：5 个够用，再多屏幕上也不好点）
 MAX_AREAS = 5
+# 区域类型：只影响翻译提示词——物品名要短、用通用译名；字幕要口语化、能整理成段
+AREA_KIND_SUBTITLE = "字幕"
+AREA_KIND_ITEM = "物品"
+AREA_KIND_GENERIC = "其他"
+AREA_KINDS = (AREA_KIND_SUBTITLE, AREA_KIND_ITEM, AREA_KIND_GENERIC)
 # OCR 预处理模式（不要从 ocr.preprocess 模块导入，避免配置层依赖 PIL）
 PREPROCESS_MODES = ("off", "auto", "contrast", "sharpen", "grayscale", "binarize")
 
@@ -312,6 +357,11 @@ class Config:
                 Region.parse(raw)
             except (TypeError, ValueError) as exc:
                 raise ConfigError(f"regions.fixed.{name} 不合法：{exc}") from exc
+        for name, kind in self.regions.area_kinds.items():
+            if kind not in AREA_KINDS:
+                raise ConfigError(
+                    f"regions.kinds.{name} 只能是 {' / '.join(AREA_KINDS)}：{kind}"
+                )
         if self.regions.follow_cursor:
             try:
                 Region.parse(self.regions.follow_cursor)
@@ -385,6 +435,10 @@ def loads(text: str) -> Config:
     fixed_raw = _section(data, "regions").get("fixed", {}) or {}
     if not isinstance(fixed_raw, dict):
         raise ConfigError("[regions.fixed] 必须是表（table）")
+    area_hotkeys_raw = _section(data, "regions").get("hotkeys", {}) or {}
+    area_kinds_raw = _section(data, "regions").get("kinds", {}) or {}
+    if not isinstance(area_hotkeys_raw, dict) or not isinstance(area_kinds_raw, dict):
+        raise ConfigError("[regions.hotkeys] 与 [regions.kinds] 都必须是表（table）")
 
     meta = _section(data, "meta")
     version_raw = meta.get("version")
@@ -406,6 +460,8 @@ def loads(text: str) -> Config:
                 if str(item).strip()
             ],
             clear_on_exit=bool(_section(data, "regions").get("clear_on_exit", True)),
+            area_hotkeys={str(k): str(v) for k, v in area_hotkeys_raw.items()},
+            area_kinds={str(k): str(v) for k, v in area_kinds_raw.items()},
         ),
         glossary={str(k): str(v) for k, v in (_section(data, "glossary")).items()},
     )
@@ -486,6 +542,16 @@ def dumps(config: Config) -> str:
     for name, raw in config.regions.fixed.items():
         lines.append(f"{_dump_key(name)} = {_dump_scalar(raw)}")
     lines.append("")
+    if config.regions.area_hotkeys:
+        lines.append("[regions.hotkeys]")
+        for name, hotkey in config.regions.area_hotkeys.items():
+            lines.append(f"{_dump_key(name)} = {_dump_scalar(hotkey)}")
+        lines.append("")
+    if config.regions.area_kinds:
+        lines.append("[regions.kinds]")
+        for name, kind in config.regions.area_kinds.items():
+            lines.append(f"{_dump_key(name)} = {_dump_scalar(kind)}")
+        lines.append("")
 
     lines.append("[glossary]")
     for key, value in config.glossary.items():

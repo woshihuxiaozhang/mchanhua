@@ -417,12 +417,22 @@ def test_settings_areas_page_lists_and_manages(workdir: Path, monkeypatch):
         _pytest.skip(f"没有可用的图形环境：{exc}")
     try:
         assert "选区" in window._pages
-        labels = [
-            child.cget("text")
-            for row in window._area_rows.winfo_children()
-            for child in row.winfo_children()
-            if hasattr(child, "cget")
-        ]
+        labels: list[str] = []
+
+        def collect_texts(widget) -> None:
+            """每个区域现在是两行（第一行名字/坐标/按钮，第二行类型 + 专属热键），
+            所以要把整棵子树里带文字的控件都收进来。"""
+
+            for child in widget.winfo_children():
+                try:
+                    text = child.cget("text")
+                except Exception:      # 容器类控件没有 text 参数
+                    text = None
+                if text:
+                    labels.append(str(text))
+                collect_texts(child)
+
+        collect_texts(window._area_rows)
         assert "物品提示" in labels and "区域2" in labels
         assert any("100,200,300,90" == text for text in labels)
 
