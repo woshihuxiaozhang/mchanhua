@@ -381,11 +381,15 @@ class SettingsWindow:
     def _ocr_language_hint(self) -> str:
         """识别语言这一行的说明：本机装了哪些、日语要怎么办。"""
 
+        from mchanhua.ocr.models import has_model
+
+        ja_note = "日语模型已随程序带上了，直接选「日语」就行喵。" if has_model("ja") else ""
         names = "、".join(self.ocr_languages) if self.ocr_languages else ""
         known = f"（本机系统 OCR 可用：{names}）" if names else ""
         return (
-            "屏幕上是什么语言的字。中英用自带模型；日语 / 韩语 / 俄语要系统装了对应的 "
-            f"OCR 语言包才行{known}。装法：Windows 设置 → 时间和语言 → 语言和区域 → "
+            f"屏幕上是什么语言的字。中英用自带模型；{ja_note}"
+            "韩语 / 俄语要系统装了对应的 OCR 语言包才行"
+            f"{known}。装法：Windows 设置 → 时间和语言 → 语言和区域 → "
             "添加语言 → 语言选项里勾上「光学字符识别」。改完重启程序生效。"
         )
 

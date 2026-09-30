@@ -45,6 +45,18 @@ class RapidOcr:
                     "这次进程里已经先用了系统 OCR，再加载 rapidocr 会让程序崩溃"
                     "（Windows 上的已知冲突）：把识别语言改成中文/自动，或者重启程序。"
                 )
+            # 日语这类"自带模型认不了"的语言：先看有没有随包的模型（有就用它）
+            from mchanhua.ocr.models import model_pack, models_dir
+
+            pack = model_pack(self.language)
+            if pack is not None:
+                missing = pack.missing()
+                if missing:
+                    raise OcrUnavailable(
+                        f"缺少{pack.label}识别模型文件：{'、'.join(missing)}"
+                        f"（应该在 {models_dir()} 下）。重装一次程序就能补上，"
+                        "或者先把「识别语言」改回中文/自动。"
+                    )
             try:
                 from rapidocr_onnxruntime import RapidOCR
             except ImportError as exc:
@@ -52,7 +64,13 @@ class RapidOcr:
                     "缺少 rapidocr-onnxruntime，无法使用 rapidocr 后端："
                     "请执行 python -m pip install rapidocr-onnxruntime"
                 ) from exc
-            self._engine = RapidOCR()
+            options: dict[str, str] = {}
+            if pack is not None:
+                options["rec_model_path"] = str(pack.recognizer)
+                options["rec_keys_path"] = str(pack.keys)
+                if pack.detector is not None:
+                    options["det_model_path"] = str(pack.detector)
+            self._engine = RapidOCR(**options)
         return self._engine
 
     def recognize(self, image: Image.Image) -> OcrResult:

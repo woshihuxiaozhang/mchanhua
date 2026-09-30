@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -124,25 +125,36 @@ def _patch_engines(monkeypatch, rapid_ready=True):
     return ocr, created
 
 
-def test_japanese_request_goes_to_windows_ocr(monkeypatch):
-    """日语 rapidocr 认不了（只有中英模型），必须走系统 OCR。"""
+def test_japanese_uses_the_bundled_model(monkeypatch):
+    """日语优先用随包的日语模型（中英模型认不出假名）。"""
 
     ocr, created = _patch_engines(monkeypatch)
 
     engine = ocr.create_engine("auto", "ja")
 
+    assert engine.name == "rapidocr"
+    assert created["rapidocr"].kwargs["language"] == "ja"
+    assert "windows" not in created           # 有模型就不用去碰系统 OCR
+
+
+def test_japanese_without_any_model_falls_back_to_windows(monkeypatch):
+    """模型没带上时才退回系统 OCR 语言包。"""
+
+    ocr, _created = _patch_engines(monkeypatch, rapid_ready=False)
+
+    engine = ocr.create_engine("auto", "ja")
+
     assert engine.name == "windows"
-    assert "rapidocr" not in created          # 这一步绝不能去加载 rapidocr
 
 
-def test_japanese_without_language_pack_warns_instead_of_crashing(monkeypatch):
-    ocr, _created = _patch_engines(monkeypatch)
+def test_japanese_with_nothing_available_warns_instead_of_crashing(monkeypatch):
+    ocr, _created = _patch_engines(monkeypatch, rapid_ready=False)
     monkeypatch.setattr(ocr, "WindowsOcr", lambda **kwargs: _FakeEngine("windows", False))
 
     engine = ocr.create_engine("auto", "日语")
 
     assert engine.ready is False
-    assert "OCR 语言包" in engine.warning
+    assert "OCR 语言包" in engine.warning and "日语" in engine.warning
 
 
 def test_chinese_still_prefers_rapidocr(monkeypatch):
@@ -160,6 +172,45 @@ def test_windows_fallback_when_rapidocr_missing(monkeypatch):
     engine = ocr.create_engine("auto", "auto")
 
     assert engine.name == "windows"
+
+
+def test_japanese_model_files_are_bundled():
+    """日语识别模型要随程序分发（认假名全靠它）。"""
+
+    from mchanhua.ocr.models import has_model, model_pack, models_dir
+
+    pack = model_pack("ja")
+    assert pack is not None and pack.label == "日语"
+    assert has_model("ja") is True, f"缺模型文件：{pack.missing()}（目录 {models_dir()}）"
+    assert model_pack("ko") is None
+    assert has_model("auto") is False
+
+
+def test_japanese_model_actually_reads_katakana():
+    """真跑一遍日语识别：以前中英模型只能认出「の初期」，现在要认出整句。"""
+
+    pytest.importorskip("rapidocr_onnxruntime")
+    pytest.importorskip("onnxruntime")
+    from PIL import Image, ImageDraw, ImageFont
+
+    from mchanhua.ocr.rapidocr import RapidOcr
+
+    font_path = r"C:\Windows\Fonts\YuGothM.ttc"
+    if not Path(font_path).exists():
+        pytest.skip("没有日文字体，跳过")  # pragma: no cover
+
+    image = Image.new("RGB", (1000, 90), (18, 40, 60))
+    ImageDraw.Draw(image).text(
+        (14, 22), "ウィンドウサイズの初期化", font=ImageFont.truetype(font_path, 40),
+        fill=(255, 255, 255),
+    )
+
+    engine = RapidOcr(language="ja", upscale=1.0)
+    result = engine.recognize(image)
+    text = " ".join(line.text for line in result.lines)
+
+    assert "ウィンドウ" in text, f"假名还是没认出来：{text!r}"
+    assert "初期化" in text
 
 
 def test_rapidocr_is_not_loaded_after_winrt(monkeypatch):

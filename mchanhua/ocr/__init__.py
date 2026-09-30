@@ -122,8 +122,8 @@ def _language_missing_warning(code: str) -> str:
     available = windows_ocr_languages()
     names = "、".join(available) if available else "未知"
     return (
-        f"系统里还没装「{language_label(code)}」的 OCR 语言包，认不出这种文字喵"
-        f"（本机可用：{names}）。去 Windows 设置 → 时间和语言 → 语言和区域 → "
+        f"「{language_label(code)}」暂时认不了喵：没有随包的识别模型，系统里也没装对应的"
+        f" OCR 语言包（本机可用：{names}）。装法：Windows 设置 → 时间和语言 → 语言和区域 → "
         f"添加「{language_label(code)}」→ 在它的语言选项里勾上「光学字符识别」，"
         "然后回来把「识别语言」选成它就好。"
     )
@@ -157,13 +157,18 @@ def create_engine(
             return engine
         engine._ensure_engine()
     if backend == "auto" and wanted in WINDOWS_FIRST_LANGUAGES:
-        # 日语/韩语/俄语：rapidocr 的中英模型认不了，只能靠系统语言包。
-        # 注意：这条路**绝不能顺带 import rapidocr**——在部分机器上先用 winrt
-        # 初始化 Windows OCR、再 import onnxruntime/opencv 会原生崩溃（access violation）。
-        engine = WindowsOcr(language=wanted, upscale=upscale, **options)
-        if not engine.ready:
-            engine.warning = _language_missing_warning(wanted)
-        return engine
+        # 日语/韩语/俄语：中英模型认不了。
+        # 顺序很重要：先试 rapidocr（有随包的日语模型就用它，质量也更好），
+        # 不行再退回 Windows 语言包。**反过来（先 winrt 再 import onnxruntime）
+        # 在部分机器上会原生崩溃**，所以绝不能先建 WindowsOcr。
+        engine = RapidOcr(language=wanted, upscale=upscale, **options)
+        if engine.ready:
+            return engine
+        windows = WindowsOcr(language=wanted, upscale=upscale, **options)
+        if windows.ready:
+            return windows
+        windows.warning = _language_missing_warning(wanted)
+        return windows
     if backend == "auto":
         if rapidocr_is_unsafe():
             # 本进程已经碰过 winrt：这时再去加载 rapidocr 会崩，直接用系统 OCR

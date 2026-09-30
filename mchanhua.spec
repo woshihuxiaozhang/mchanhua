@@ -38,6 +38,12 @@ def conda_extra_binaries():
 # OCR 模型（约 13MB）必须随包分发
 datas = collect_data_files("rapidocr_onnxruntime")
 datas += collect_data_files("customtkinter")      # 主题 json 等资源
+# 日语识别模型（多语言检测 + 日语识别 + 字典，约 12MB）：认假名全靠它
+datas += [
+    ("assets/models/multi_det.onnx", "assets/models"),
+    ("assets/models/japan_rec.onnx", "assets/models"),
+    ("assets/models/japan_dict.txt", "assets/models"),
+]
 binaries = collect_dynamic_libs("onnxruntime") + conda_extra_binaries()
 
 hiddenimports = (
