@@ -32,6 +32,13 @@ def test_prompt_requires_json_line_mapping():
     assert "行数" in SYSTEM_PROMPT and "一致" in SYSTEM_PROMPT
 
 
+def test_prompt_tells_model_to_translate_mixed_lines():
+    """回归：中英混排的行必须照翻，不能整行抄回去。"""
+
+    assert "中英混排" in SYSTEM_PROMPT
+    assert "照翻" in SYSTEM_PROMPT
+
+
 def test_prompt_version_changes_cache_key():
     # 提示词一改，旧译文不应再命中缓存
     assert cache_key("Switch", "deepseek-chat", "v1") != cache_key("Switch", "deepseek-chat", PROMPT_VERSION)

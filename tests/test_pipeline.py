@@ -48,6 +48,23 @@ def test_pipeline_translates_only_english_lines():
     assert result.translate_ms >= 0
 
 
+def test_pipeline_sends_mixed_lines_to_the_model():
+    """回归：中英混排的行以前整行被跳过，模型根本看不到它（半截英文翻不出来）。"""
+
+    ocr = FakeOcr(["已找到 Iron Nugget", "可以放在：", "You are one step closer, in已将截图保存为1.png"])
+    translator = FakeTranslator()
+
+    result = run_pipeline(_image(), ocr, translator)
+
+    assert translator.calls == [[
+        "已找到 Iron Nugget",
+        "You are one step closer, in已将截图保存为1.png",
+    ]]
+    assert result.output_lines[0] == "【已找到 Iron Nugget】"
+    assert result.output_lines[1] == "可以放在："          # 整行中文，仍然不动
+    assert result.translated_count == 2
+
+
 def test_pipeline_without_translator_returns_source():
     ocr = FakeOcr(["Steel Ingot"])
     result = run_pipeline(_image(), ocr, None)

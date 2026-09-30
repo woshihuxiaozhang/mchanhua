@@ -43,14 +43,16 @@ def contains_cjk(text: str) -> bool:
 def should_translate(text: str, min_letters: int = 2) -> bool:
     """判断一行是否需要送去翻译。
 
-    规则：已经含中文的行原样保留（整合包往往已有部分汉化，避免"磁石"被再翻一次），
-    纯数字/符号行没有翻译价值，字母太少的行也跳过。
+    规则：只要行里有像样数量的英文字母就翻，纯数字/符号行跳过。
+
+    **为什么不再"见中文就跳过"**：OCR 经常把系统提示、截图通知和英文台词接到一行里
+    （例如「You are one step closer to ... in已将截图保存为1.png」），
+    以前遇到中文就整行不翻，结果半截英文永远翻不出来（用户反馈的 bug）。
+    整行都已经汉化的行本来就没有字母，自然会被下面的字母数筛掉，不会白花请求。
     """
 
     stripped = text.strip()
     if not stripped:
-        return False
-    if contains_cjk(stripped):
         return False
     return len(LETTER_PATTERN.findall(stripped)) >= min_letters
 
