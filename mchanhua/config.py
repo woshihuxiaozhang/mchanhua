@@ -102,6 +102,10 @@ class TranslateConfig:
     cache_enabled: bool = True
     # 让模型额外给一段"整理通顺"的整段译文（把 OCR 切碎的行接回去、调语序）
     humanize: bool = True
+    # 目标语言：翻成什么语言（默认简体中文）
+    target_language: str = "简体中文"
+    # 源语言：auto = 自动识别（本地按字符集判断 + 让模型自己判断），也可以写死"英语""日语"
+    source_language: str = "auto"
 
 
 @dataclass
@@ -262,6 +266,8 @@ class Config:
             raise ConfigError(f"ocr.settle_frames 只能是 1~3：{self.ocr.settle_frames}")
         if self.translate.temperature < 0:
             raise ConfigError("translate.temperature 不能为负数")
+        if not (self.translate.target_language or "").strip():
+            raise ConfigError("translate.target_language 不能为空（默认「简体中文」）")
         if self.capture.monitor < 0:
             raise ConfigError("capture.monitor 不能为负数")
         if not 0 < self.ui.opacity <= 1:

@@ -99,6 +99,8 @@ def create_translator(
         glossary=merged_glossary,
         provider=config.provider,
         humanize=config.humanize,
+        target_language=config.target_language,
+        source_language=config.source_language,
     )
     if not config.cache_enabled:
         return engine

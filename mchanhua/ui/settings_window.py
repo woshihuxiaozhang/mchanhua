@@ -44,6 +44,13 @@ LABEL = "#8A8A8A"
 BLUE = "#1A73E8"
 BLUE_SOFT = "#E8F0FE"
 
+# 源语言默认"自动识别"（本地按字符集判断 + 让模型自己判断），一般不用手动选
+SOURCE_LANGUAGE_AUTO = "自动识别"
+SOURCE_LANGUAGE_CHOICES = (
+    SOURCE_LANGUAGE_AUTO, "英语", "日语", "韩语", "俄语", "德语", "法语", "西班牙语",
+)
+TARGET_LANGUAGE_CHOICES = ("简体中文", "繁體中文", "English", "日本語", "한국어", "Русский")
+
 
 class SettingsWindow:
     def __init__(
@@ -278,9 +285,9 @@ class SettingsWindow:
         self._row(page, 2, "模型名", "model", translate.model)
 
         ctk.CTkLabel(page, text="API Key", font=self.f_label, text_color=LABEL, width=90,
-                     anchor="w").grid(row=3, column=0, sticky="w", padx=(8, 12), pady=9)
+                     anchor="w").grid(row=5, column=0, sticky="w", padx=(8, 12), pady=9)
         holder = ctk.CTkFrame(page, corner_radius=6, fg_color=FIELD, border_width=1, border_color=LINE)
-        holder.grid(row=3, column=1, sticky="we", pady=9, padx=(0, 8))
+        holder.grid(row=5, column=1, sticky="we", pady=9, padx=(0, 8))
         var = tk.StringVar(value=translate.api_key)
         self._vars["api_key"] = var
         entry = ctk.CTkEntry(holder, textvariable=var, font=self.f_field, show="•",
@@ -293,15 +300,36 @@ class SettingsWindow:
                       command=self._toggle_key_visibility).pack(side="right", padx=2, pady=2)
 
         actions = ctk.CTkFrame(page, corner_radius=0, fg_color="transparent")
-        actions.grid(row=4, column=1, sticky="w", pady=(4, 6), padx=(0, 8))
+        actions.grid(row=6, column=1, sticky="w", pady=(4, 6), padx=(0, 8))
         self._button(actions, "⚡ 测试连接", self.test_connection).pack(side="left")
         self._test_label = ctk.CTkLabel(actions, text="", font=self.f_label, text_color="#5F6368")
         self._test_label.pack(side="left", padx=10)
 
         ctk.CTkLabel(page, text="API Key 只保存在本机的 config.toml 里：翻译时仅把识别出的文字发给所选服务商。",
                      font=self.f_small, text_color=LABEL, anchor="w").grid(
-            row=5, column=0, columnspan=2, sticky="w", padx=8, pady=(10, 0)
+            row=7, column=0, columnspan=2, sticky="w", padx=8, pady=(10, 0)
         )
+
+        # ---- 语言：源语言默认自动识别，只固定目标语言 ----
+        source_value = (translate.source_language or "").strip()
+        if source_value.lower() in ("", "auto", "自动", "自动识别"):
+            source_value = SOURCE_LANGUAGE_AUTO          # 配置里存的是 auto，界面显示中文
+        self._vars["source_language"] = tk.StringVar(value=source_value)
+        self._vars["target_language"] = tk.StringVar(
+            value=translate.target_language or "简体中文"
+        )
+        for row, label, key, values in (
+            (3, "源语言", "source_language", SOURCE_LANGUAGE_CHOICES),
+            (4, "目标语言", "target_language", TARGET_LANGUAGE_CHOICES),
+        ):
+            ctk.CTkLabel(page, text=label, font=self.f_label, text_color=LABEL, width=90,
+                         anchor="w").grid(row=row, column=0, sticky="w", padx=(8, 12), pady=9)
+            ctk.CTkComboBox(
+                page, variable=self._vars[key], values=list(values), height=34,
+                corner_radius=6, font=self.f_field, fg_color=FIELD, border_color=LINE,
+                button_color=FIELD, text_color=TEXT, dropdown_fg_color=CARD,
+                dropdown_text_color=TEXT,
+            ).grid(row=row, column=1, sticky="we", pady=9, padx=(0, 8))
 
     def _toggle_key_visibility(self) -> None:
         self._api_entry.configure(show="" if self._vars["show_key"].get() else "•")
@@ -669,6 +697,8 @@ class SettingsWindow:
         config.translate.base_url = str(self._vars["base_url"].get()).strip()
         config.translate.model = str(self._vars["model"].get()).strip()
         config.translate.api_key = str(self._vars["api_key"].get()).strip()
+        config.translate.source_language = str(self._vars["source_language"].get()).strip() or "auto"
+        config.translate.target_language = str(self._vars["target_language"].get()).strip() or "简体中文"
         for key, _label in HOTKEY_LABELS:
             value = str(self._vars[f"hotkey.{key}"].get()).strip()
             setattr(config.hotkeys, key, value)

@@ -13,6 +13,7 @@ from mchanhua.autoregion import capture_region_for, filter_area_lines, filter_ca
 from mchanhua.capture import create_grabber, frames_similar, grab_clipboard_image, grab_screen
 from mchanhua.config import CUSTOM_REGION_KEY, MAX_AREAS, Config, save_config
 from mchanhua.debugdump import dump_last_run
+from mchanhua.detect import guess_language, language_name
 from mchanhua.diagnostics import UiWatchdog, make_dump_all_threads
 from mchanhua.geometry import Region, enable_dpi_awareness, follow_cursor_region
 from mchanhua.history import TranslationHistory
@@ -546,6 +547,13 @@ class Application:
                         ("notice", self._no_text_message(region if not areas else None))
                     )
                     return
+                source_text = " ".join(line.text for line in ocr_result.lines)
+                guessed = guess_language(source_text)
+                if guessed:
+                    get_logger().info(
+                        "本次识别到的语言：%s（%s）→ 目标 %s",
+                        language_name(guessed), guessed, self.config.translate.target_language,
+                    )
                 result = run_from_ocr(
                     ocr_result,
                     translator,

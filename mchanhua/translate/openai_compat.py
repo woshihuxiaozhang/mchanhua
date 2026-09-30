@@ -18,14 +18,15 @@ from mchanhua.translate.placeholders import (
     strip_leftover_sentinels,
 )
 
-PROMPT_VERSION = "v5"
+PROMPT_VERSION = "v6"
 
-SYSTEM_PROMPT = """你是 Minecraft 模组与整合包的汉化译者，负责把游戏里的英文翻译成简体中文。
+# 提示词模板：语言对由配置决定（源语言默认"自动识别"），所以这里用占位符
+SYSTEM_PROMPT = """你是游戏文本的翻译，负责把屏幕上的 [[source]]翻译成[[target]]。
 
 【语气与风格】（很重要）
-- 译成**口语化、自然**的中文，像真人在说话，不要翻译腔、不要书面语、不要逐字硬译。
+- 译成**口语化、自然**的[[target]]，像真人在说话，不要翻译腔、不要书面语、不要逐字硬译。
 - **保留原句的情绪**：惊讶、紧张、警告、嘲讽、催促、感慨、恐惧都要译出来。
-- 该用语气词就用（啊、吧、呢、喂、该死、天哪），该用感叹/疑问标点就用（！？……）。
+- 该用语气词就用（啊、吧、呢、喂……），该用感叹/疑问标点就用（？！……）。
 - NPC 台词要短促有力；物品名、技能名保持简洁专业。
 
 【格式规则】（必须严格遵守）
@@ -33,21 +34,23 @@ SYSTEM_PROMPT = """你是 Minecraft 模组与整合包的汉化译者，负责�
 2. 只输出一个 JSON 对象：{"lines": [{"i": 0, "src": "原行", "dst": "译文"}, ...]}。
    i 是输入行号（从 0 开始），**必须与输入的序号一一对应**；src 原样抄回该行输入，用于核对。
 3. 文本里的哨兵字符（\\ue000数字\\ue001）代表格式占位符（颜色码、%s 之类），必须原样保留在译文对应位置，不得翻译、删除或改动。
-4. 已经是中文的行、没有实际词义的文本（纯数字、纯符号），把原文原样放进 dst。
-5. **输入来自屏幕 OCR，可能有个别字符被认错**（l/I、o/0、w/u、rn/m 混淆，下划线丢失）。
+4. 已经是[[target]]的行、没有实际词义的文本（纯数字、纯符号），把原文原样放进 dst。
+5. **输入来自屏幕 OCR，可能有个别字符被认错**（l/I、o/0、w/u、rn/m 混淆，下划线丢失，汉字/假名也可能认错）。
    遇到明显是识别错误的单词，按最接近的常见英文词理解并翻译，不要原样返回英文；
    只有确定是人名、玩家 ID、命令或代码时才保留原文。
-6. 使用 Minecraft 中文社区的通行译法。
+6. 如果内容是 Minecraft 相关（物品、方块、生物、界面），使用[[target]]社区里通行的译法。
 7. 如果下面给了【整段整理】要求，就再补一个 paragraph 字段（整段通顺译文）。
 
 【风格示例】
-- "Durability" → "耐久"
-- "Right-click to place" → "右键放置"
-- "You shouldn't be here." → "你不该来这儿的。"
-- "No way through, unless I stop that leak." → "该死，不把那个漏点堵上就过不去。"
-- "What the hell is that?!" → "这到底是什么鬼东西？！"
-- "You are one step closer to salvation." → "你离获救又近了一步。"
+- 语气要像真人在说话，保留情绪；不要逐字硬译，也不要把语气词都抹掉。
 """
+
+# 源语言"自动识别"时插进提示词的一段说明
+AUTO_SOURCE_NOTE = """输入语言**不固定**：可能是英语、日语、韩语、俄语等任何一种，
+请你**先自己判断每段文字是什么语言**，再翻译；同一批里混着多种语言也要各自正确处理。
+"""
+
+TARGET_LANGUAGE_DEFAULT = "简体中文"
 
 GLOSSARY_PREFIX = "固定译法（必须遵守）："
 
@@ -87,11 +90,28 @@ def _normalize_for_check(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def build_system_prompt(glossary: dict[str, str] | None) -> str:
+def build_system_prompt(
+    glossary: dict[str, str] | None,
+    target_language: str = TARGET_LANGUAGE_DEFAULT,
+    source_language: str = "auto",
+) -> str:
+    """按当前语言设置生成系统提示词：源语言默认"自动识别"，只固定目标语言。"""
+
+    target = (target_language or TARGET_LANGUAGE_DEFAULT).strip()
+    source = (source_language or "auto").strip()
+    if source.lower() in ("auto", "", "自动", "自动识别"):
+        source_hint = ""
+    else:
+        source_hint = f"{source}"
+    # 用 replace 而不是 str.format：提示词里有的是字面花括号（JSON 示例），
+    # format 会把它们当占位符直接报 KeyError
+    prompt = SYSTEM_PROMPT.replace("[[source]]", source_hint).replace("[[target]]", target)
+    if not source_hint:
+        prompt = f"{prompt}\n【源语言】\n{AUTO_SOURCE_NOTE}"
     if not glossary:
-        return SYSTEM_PROMPT
+        return prompt
     pairs = "；".join(f"{key}={value}" for key, value in sorted(glossary.items()))
-    return f"{SYSTEM_PROMPT}\n\n{GLOSSARY_PREFIX}{pairs}"
+    return f"{prompt}\n\n{GLOSSARY_PREFIX}{pairs}"
 
 
 def looks_like_word(text: str, min_letters: int = 3) -> bool:
@@ -119,6 +139,8 @@ class OpenAICompatibleTranslator:
         client: httpx.Client | None = None,
         provider: str = "custom",
         humanize: bool = True,
+        target_language: str = TARGET_LANGUAGE_DEFAULT,
+        source_language: str = "auto",
         retry_attempts: int = 3,
         retry_backoff: float = 0.6,
     ) -> None:
@@ -132,6 +154,8 @@ class OpenAICompatibleTranslator:
         self.glossary = dict(glossary or {})
         self.prompt_version = PROMPT_VERSION
         self.humanize = bool(humanize)
+        self.target_language = (target_language or TARGET_LANGUAGE_DEFAULT).strip()
+        self.source_language = (source_language or "auto").strip()
         self.last_paragraph = ""          # 上一步"整理成段"的结果（没有就是空）
         self._client = client or httpx.Client(timeout=timeout)
         self.retry_attempts = max(1, int(retry_attempts))
@@ -167,7 +191,9 @@ class OpenAICompatibleTranslator:
     def _request(self, lines: list[str], correction: bool = False) -> list[str]:
         protected, tables = protect_lines(lines)
         numbered = "\n".join(f"{index}. {text}" for index, text in enumerate(protected))
-        system_prompt = build_system_prompt(self.glossary)
+        system_prompt = build_system_prompt(
+            self.glossary, self.target_language, self.source_language
+        )
         if self.humanize and not correction:
             system_prompt += HUMANIZE_NOTE
         if correction:

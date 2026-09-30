@@ -12,14 +12,12 @@ def test_prompt_tells_model_about_ocr_typos():
 
 
 def test_prompt_requires_colloquial_emotional_style():
-    """v4：要求口语化、带情绪，并给出风格示例。"""
+    """要求口语化、带情绪（不再写死英文示例，因为现在支持任意源语言）。"""
 
     assert "口语化" in SYSTEM_PROMPT
     assert "情绪" in SYSTEM_PROMPT
     assert "语气词" in SYSTEM_PROMPT
     assert "翻译腔" in SYSTEM_PROMPT
-    # 有情绪化示例（含语气词或感叹号）
-    assert "该死" in SYSTEM_PROMPT
     assert "？！" in SYSTEM_PROMPT
 
 
@@ -42,4 +40,6 @@ def test_prompt_version_changes_cache_key():
 def test_glossary_is_appended():
     prompt = build_system_prompt({"Switch": "开关"})
     assert "Switch=开关" in prompt
-    assert SYSTEM_PROMPT in prompt
+    # 模板里的占位符会被替换掉，所以比对替换后的关键片段
+    assert "【格式规则】" in prompt
+    assert "[[target]]" not in prompt and "[[source]]" not in prompt
