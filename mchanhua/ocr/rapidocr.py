@@ -37,6 +37,14 @@ class RapidOcr:
 
     def _ensure_engine(self):
         if self._engine is None:
+            # 某些机器上"先 winrt 后 onnxruntime"会原生崩溃：这里拦一下，别让程序直接死
+            from mchanhua.ocr import rapidocr_is_unsafe
+
+            if rapidocr_is_unsafe():
+                raise OcrUnavailable(
+                    "这次进程里已经先用了系统 OCR，再加载 rapidocr 会让程序崩溃"
+                    "（Windows 上的已知冲突）：把识别语言改成中文/自动，或者重启程序。"
+                )
             try:
                 from rapidocr_onnxruntime import RapidOCR
             except ImportError as exc:
@@ -93,4 +101,3 @@ class RapidOcr:
         except OcrUnavailable:
             return False
         return True
-

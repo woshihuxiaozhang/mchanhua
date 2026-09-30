@@ -106,9 +106,13 @@ def run_from_ocr(
     if translator is None or not source_lines:
         return result
 
-    pending = split_translatable(source_lines)
+    pending = split_translatable(
+        source_lines, getattr(translator, "target_language", "") or "简体中文"
+    )
     if not pending:
-        result.warnings.append("没有需要翻译的行（识别结果已是中文或没有词义）")
+        result.warnings.append(
+            "没有需要翻译的行（这些字看起来已经是目标语言了，或者没有实际词义）"
+        )
         return result
 
     started = time.perf_counter()

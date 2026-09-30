@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Protocol, Sequence
 
+from mchanhua.detect import ARABIC, CJK, CYRILLIC, HANGUL, KANA, LATIN, THAI
+
 
 class TranslationError(Exception):
     """翻译失败（网络、鉴权、响应格式等）。"""
@@ -46,6 +48,9 @@ def set_extra_glossary(translator, glossary: dict[str, str] | None) -> None:
 CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]")
 LETTER_PATTERN = re.compile(r"[A-Za-z]")
 
+# 目标语言没配时按这个来（本项目默认翻成简体中文）
+DEFAULT_TARGET_LANGUAGE = "简体中文"
+
 
 def contains_cjk(text: str) -> bool:
     """是否包含中日韩字符或全角标点。"""
@@ -53,24 +58,88 @@ def contains_cjk(text: str) -> bool:
     return bool(CJK_PATTERN.search(text))
 
 
-def should_translate(text: str, min_letters: int = 2) -> bool:
+def _looks_like_target_language(target: str, kind: str) -> bool:
+    """目标语言是不是这一类文字（中文 / 日语…）。"""
+
+    target = (target or "").strip()
+    if not target:
+        return False
+    lowered = target.lower()
+    if kind == "zh":
+        return (
+            "中文" in target
+            or "汉语" in target
+            or "漢語" in target
+            or lowered in ("zh", "zh-cn", "zh-tw", "chinese")
+        )
+    if kind == "ja":
+        return (
+            "日语" in target
+            or "日文" in target
+            or "日本語" in target
+            or "日本" in target
+            or lowered in ("ja", "jp", "japanese")
+        )
+    return lowered in (kind,)
+
+
+def should_translate(
+    text: str,
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+    min_letters: int = 2,
+    batch_has_japanese: bool = False,
+) -> bool:
     """判断一行是否需要送去翻译。
 
-    规则：只要行里有像样数量的英文字母就翻，纯数字/符号行跳过。
+    按**文字种类**判断，不按"有没有英文字母"判断：
 
-    **为什么不再"见中文就跳过"**：OCR 经常把系统提示、截图通知和英文台词接到一行里
-    （例如「You are one step closer to ... in已将截图保存为1.png」），
-    以前遇到中文就整行不翻，结果半截英文永远翻不出来（用户反馈的 bug）。
-    整行都已经汉化的行本来就没有字母，自然会被下面的字母数筛掉，不会白花请求。
+    - 有假名/谚文/西里尔/阿拉伯/泰文 → 不是目标语言（除非目标就是它），要翻；
+    - 汉字：目标不是中文就翻；中英/中日混排（拉丁字母够多）也翻；
+      只有汉字、目标又是中文时才跳过（整合包常常已经汉化，别把「磁石」再翻一遍），
+      但同一批里只要出现过假名，就把这种"纯汉字行"当日语翻；
+    - 纯数字/符号、字母太少的行跳过。
+
+    （以前只认英文字母，结果日语假名行一个字母都没有，整行被跳过 → 日语完全翻不了。）
     """
 
     stripped = text.strip()
     if not stripped:
         return False
-    return len(LETTER_PATTERN.findall(stripped)) >= min_letters
+
+    latin = len(LATIN.findall(stripped))
+    kana = bool(KANA.search(stripped))
+    foreign = kana or bool(
+        HANGUL.search(stripped)
+        or CYRILLIC.search(stripped)
+        or ARABIC.search(stripped)
+        or THAI.search(stripped)
+    )
+    cjk = bool(CJK.search(stripped))
+
+    if foreign:
+        if kana and _looks_like_target_language(target_language, "ja"):
+            return latin >= min_letters      # 目标就是日语：纯日语不用翻，混了外文才翻
+        return True
+    if cjk:
+        if not _looks_like_target_language(target_language, "zh"):
+            return True                      # 目标不是中文：汉字当然要翻
+        if latin >= min_letters:
+            return True                      # 中英混排：里面那截外文要翻
+        return batch_has_japanese            # 只有汉字：批里有假名就当日语
+    return latin >= min_letters
 
 
-def split_translatable(lines: Sequence[str]) -> list[tuple[int, str]]:
+def split_translatable(
+    lines: Sequence[str],
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+) -> list[tuple[int, str]]:
     """挑出需要翻译的行，返回 (行号, 文本) 列表；其余行由调用方原样保留。"""
 
-    return [(index, line) for index, line in enumerate(lines) if should_translate(line)]
+    batch_has_japanese = any(KANA.search(line or "") for line in lines)
+    return [
+        (index, line)
+        for index, line in enumerate(lines)
+        if should_translate(
+            line, target_language, batch_has_japanese=batch_has_japanese
+        )
+    ]

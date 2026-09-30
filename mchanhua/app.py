@@ -104,6 +104,15 @@ class Application:
         self.ocr = ocr or create_engine(
             config.ocr.backend, config.ocr.language, config.ocr.upscale, invert=config.ocr.invert
         )
+        # OCR 引擎自己带出来的提醒（例如"这个语言的识别包没装"），启动后显示在状态栏
+        self.ocr_warning = getattr(self.ocr, "warning", "") or ""
+        if not getattr(self.ocr, "ready", True):
+            self.ocr_warning = self.ocr_warning or f"OCR 后端「{self.ocr.name}」现在用不了"
+        # 本机装了哪些 OCR 语言：只有真在用系统 OCR 时引擎才知道（不去主动调 winrt，
+        # 那会在"先 winrt 后 rapidocr"的顺序下把进程搞崩）
+        self.ocr_languages = list(getattr(self.ocr, "languages", None) or [])
+        if self.ocr_warning:
+            logger.warning("OCR 提醒：%s", self.ocr_warning)
         logger.info("步骤 3/3：创建小窗界面")
         self.translator = None
         self.translator_error: str | None = None
@@ -671,6 +680,7 @@ class Application:
             on_pick_region=self.request_select_region,
             terms=self.terms,
             on_clear_terms=self.clear_learned_terms,
+            ocr_languages=self.ocr_languages,
         )
 
     def preview_opacity(self, value: float) -> None:
@@ -1190,7 +1200,9 @@ class Application:
                 target=self._register_hotkeys, name="hotkey-register", daemon=True
             ).start()
         else:
-            self.window.set_status("就绪喵～热键关着呢，点「翻译选区」按钮也行")
+            self.window.set_status(
+                self.ocr_warning or "就绪喵～热键关着呢，点「翻译选区」按钮也行"
+            )
         logger.info("进入界面主循环")
         self.window.run()
         logger.info("界面退出")
@@ -1243,7 +1255,11 @@ class Application:
         self.hotkeys.start()
         logger.info("热键注册完成：%d 个", registered)
         self.queue.put(
-            ("status", f"就绪喵～{registered} 个热键已注册，鼠标移到物品上按热键")
+            (
+                "status",
+                self.ocr_warning
+                or f"就绪喵～{registered} 个热键已注册，鼠标移到物品上按热键",
+            )
         )
 
     def _on_tk_error(self, exc_type, exc_value, exc_tb) -> None:

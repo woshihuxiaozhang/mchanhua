@@ -184,7 +184,7 @@ def cmd_translate_text(args: argparse.Namespace) -> int:
         print("未配置 DeepSeek API key，只回显输入。", file=sys.stderr)
 
     output = list(lines)
-    pending = split_translatable(lines)
+    pending = split_translatable(lines, config.translate.target_language or "简体中文")
     if translator is not None and pending:
         translated = translator.translate_lines([text for _, text in pending])
         for (index, source), target in zip(pending, translated):

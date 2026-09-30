@@ -18,6 +18,7 @@ from mchanhua.config import AREA_KINDS, MAX_AREAS, Config, save_config
 from mchanhua.history import TranslationHistory, render_entries
 from mchanhua.hotkey import find_conflicts, normalize_hotkey
 from mchanhua.logging_setup import get_logger
+from mchanhua.ocr import OCR_LANGUAGE_CHOICES, language_label
 from mchanhua.paths import app_dir, log_dir
 from mchanhua.translate.connection import test_connection
 from mchanhua.translate.providers import PRESETS, guess_provider
@@ -67,6 +68,7 @@ class SettingsWindow:
         on_pick_region: Callable[[], None] | None = None,
         terms=None,
         on_clear_terms: Callable[[], int] | None = None,
+        ocr_languages: list[str] | None = None,
     ) -> None:
         self.config = config
         self.on_saved = on_saved
@@ -82,6 +84,8 @@ class SettingsWindow:
         # 自动术语表（模型顺手认出的专有名词，只留一天）
         self.terms = terms
         self.on_clear_terms = on_clear_terms
+        # 本机 Windows OCR 装了哪些语言（由控制器从 OCR 引擎上取，界面自己不去查）
+        self.ocr_languages = list(ocr_languages or [])
         ctk.set_appearance_mode("dark" if _is_dark(config.ui.background) else "light")
         self.root = ctk.CTkToplevel(parent) if parent is not None else ctk.CTk()
         self.root.title("mchanhua 设置")
@@ -353,6 +357,37 @@ class SettingsWindow:
                 button_color=FIELD, text_color=TEXT, dropdown_fg_color=CARD,
                 dropdown_text_color=TEXT,
             ).grid(row=row, column=1, sticky="we", pady=9, padx=(0, 8))
+
+        # ---- 识别语言（OCR）：屏幕上是什么语言的字 ----
+        row = 9
+        ctk.CTkLabel(page, text="识别语言（OCR）", font=self.f_label, text_color=LABEL,
+                     width=90, anchor="w").grid(
+            row=row, column=0, sticky="w", padx=(8, 12), pady=9
+        )
+        current = language_label(self.config.ocr.language)
+        self._vars["ocr_language"] = tk.StringVar(value=current)
+        ctk.CTkComboBox(
+            page, variable=self._vars["ocr_language"],
+            values=[label for _code, label in OCR_LANGUAGE_CHOICES], height=34,
+            corner_radius=6, font=self.f_field, state="readonly", fg_color=FIELD,
+            border_color=LINE, button_color=FIELD, text_color=TEXT,
+            dropdown_fg_color=CARD, dropdown_text_color=TEXT,
+        ).grid(row=row, column=1, sticky="we", pady=9, padx=(0, 8))
+        ctk.CTkLabel(page, text=self._ocr_language_hint(), font=self.f_small,
+                     text_color=LABEL, anchor="w", justify="left", wraplength=560).grid(
+            row=row + 1, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6)
+        )
+
+    def _ocr_language_hint(self) -> str:
+        """识别语言这一行的说明：本机装了哪些、日语要怎么办。"""
+
+        names = "、".join(self.ocr_languages) if self.ocr_languages else ""
+        known = f"（本机系统 OCR 可用：{names}）" if names else ""
+        return (
+            "屏幕上是什么语言的字。中英用自带模型；日语 / 韩语 / 俄语要系统装了对应的 "
+            f"OCR 语言包才行{known}。装法：Windows 设置 → 时间和语言 → 语言和区域 → "
+            "添加语言 → 语言选项里勾上「光学字符识别」。改完重启程序生效。"
+        )
 
     def _toggle_key_visibility(self) -> None:
         self._api_entry.configure(show="" if self._vars["show_key"].get() else "•")
@@ -848,6 +883,11 @@ class SettingsWindow:
             value = str(self._vars[f"hotkey.{key}"].get()).strip()
             setattr(config.hotkeys, key, value)
         self._collect_area_hotkeys()          # 每个区域的专属热键
+        # 识别语言（OCR）：下拉显示的是中文名，存进配置的是短代码
+        label = str(self._vars["ocr_language"].get()).strip()
+        code = next((key for key, name in OCR_LANGUAGE_CHOICES if name == label), None)
+        if code:
+            config.ocr.language = code
         for key in ("width", "height", "source_font_size", "result_font_size", "padding"):
             raw = str(self._vars[f"ui.{key}"].get()).strip()
             if raw.isdigit():
@@ -969,16 +1009,19 @@ def open_settings(
     on_pick_region: Callable[[], None] | None = None,
     terms=None,
     on_clear_terms: Callable[[], int] | None = None,
+    ocr_languages: list[str] | None = None,
 ) -> None:
     if parent is not None:
         SettingsWindow(config, on_saved, parent=parent,
                        pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
                        history=history, on_history_cleared=on_history_cleared,
                        preview_opacity=preview_opacity, on_pick_region=on_pick_region,
-                       terms=terms, on_clear_terms=on_clear_terms)
+                       terms=terms, on_clear_terms=on_clear_terms,
+                       ocr_languages=ocr_languages)
         return
     SettingsWindow(config, on_saved,
                    pause_hotkeys=pause_hotkeys, resume_hotkeys=resume_hotkeys,
                    history=history, on_history_cleared=on_history_cleared,
                    preview_opacity=preview_opacity, on_pick_region=on_pick_region,
-                   terms=terms, on_clear_terms=on_clear_terms).run()
+                   terms=terms, on_clear_terms=on_clear_terms,
+                   ocr_languages=ocr_languages).run()

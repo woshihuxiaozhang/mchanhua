@@ -43,10 +43,11 @@ def available_languages() -> list[str]:
         raise OcrUnavailable(f"读取 OCR 语言列表失败：{exc}") from exc
 
 
-def pick_language(preference: str = "auto") -> str:
+def pick_language(preference: str = "auto", languages: list[str] | None = None) -> str:
     """选择实际使用的 OCR 语言标签。"""
 
-    languages = available_languages()
+    if languages is None:
+        languages = available_languages()
     if not languages:
         raise OcrUnavailable(
             "系统没有安装任何 OCR 语言包。可在 设置 → 时间和语言 → 语言和区域 中"
@@ -60,7 +61,11 @@ def pick_language(preference: str = "auto") -> str:
         for tag in languages:
             if tag.lower().startswith(wanted):
                 return tag
-        raise OcrUnavailable(f"OCR 语言 {preference} 不可用，系统可用：{languages}")
+        raise OcrUnavailable(
+            f"系统里还没装「{preference}」的 OCR 语言包，认不出这种文字"
+            f"（本机可用：{'、'.join(languages)}）。装法：Windows 设置 → 时间和语言 → "
+            "语言和区域 → 添加该语言 → 语言选项里勾上「光学字符识别」。"
+        )
     for prefix in PREFERRED_LANGUAGE_PREFIXES:
         for tag in languages:
             if tag.lower().startswith(prefix.lower()):
@@ -117,6 +122,7 @@ class WindowsOcr:
         self.invert = invert
         self._engine = None
         self.language: str | None = None
+        self.languages: list[str] = []      # 本机装了哪些 OCR 语言（引擎建好后填上）
 
     def _ensure_engine(self):
         if self._engine is not None:
@@ -124,7 +130,8 @@ class WindowsOcr:
         engine_cls = _win_ocr_class()
         from winrt.windows.globalization import Language
 
-        tag = pick_language(self.language_setting)
+        languages = available_languages()
+        tag = pick_language(self.language_setting, languages)
         engine = engine_cls.try_create_from_language(Language(tag))
         if engine is None:  # pragma: no cover - 取决于系统状态
             engine = engine_cls.try_create_from_user_profile_languages()
@@ -132,6 +139,7 @@ class WindowsOcr:
             raise OcrUnavailable(f"无法创建 OCR 引擎（语言 {tag}）")
         self._engine = engine
         self.language = tag
+        self.languages = list(languages)
         return engine
 
     @property

@@ -51,6 +51,8 @@ class CachingTranslator:
         self.misses = 0
         self.last_paragraph = ""
         self.last_terms: list[tuple[str, str]] = []
+        # 管线要用它判断"这行是不是已经是目标语言了"
+        self.target_language = getattr(inner, "target_language", "")
 
     def translate_lines(self, lines: Sequence[str]) -> list[str]:
         sources = list(lines)
