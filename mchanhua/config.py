@@ -89,6 +89,11 @@ class OcrConfig:
     # 抓屏前确认画面已经稳定（1 = 不检测直接抓；2~3 = 多抓几帧比较，
     # 免得把还在淡入的提示框翻成半截）
     settle_frames: int = 2
+    # 识别前的图像预处理：off / auto / contrast / sharpen / grayscale / binarize
+    # auto = 画面发灰（对比度低）时自动增强，否则原样识别
+    preprocess: str = "auto"
+    # 把被 OCR 切碎的行拼回整句（送翻译之前）
+    merge_lines: bool = True
 
 
 @dataclass
@@ -238,6 +243,8 @@ CUSTOM_REGION_KEY = "custom"
 FIRST_AREA_NAME = "区域1"
 # 最多保存几个区域（用户要求：5 个够用，再多屏幕上也不好点）
 MAX_AREAS = 5
+# OCR 预处理模式（不要从 ocr.preprocess 模块导入，避免配置层依赖 PIL）
+PREPROCESS_MODES = ("off", "auto", "contrast", "sharpen", "grayscale", "binarize")
 
 
 @dataclass
@@ -264,6 +271,10 @@ class Config:
             raise ConfigError(f"ocr.capture_mode 只能是 screen 或 padded：{self.ocr.capture_mode}")
         if not 1 <= int(self.ocr.settle_frames) <= 3:
             raise ConfigError(f"ocr.settle_frames 只能是 1~3：{self.ocr.settle_frames}")
+        if (self.ocr.preprocess or "").lower() not in PREPROCESS_MODES:
+            raise ConfigError(
+                f"ocr.preprocess 只能是 {' / '.join(PREPROCESS_MODES)}：{self.ocr.preprocess}"
+            )
         if self.translate.temperature < 0:
             raise ConfigError("translate.temperature 不能为负数")
         if not (self.translate.target_language or "").strip():

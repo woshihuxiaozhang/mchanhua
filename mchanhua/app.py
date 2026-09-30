@@ -20,6 +20,8 @@ from mchanhua.history import TranslationHistory
 from mchanhua.hotkey import HotkeyManager, reset_pressed_state
 from mchanhua.logging_setup import fault_stream, get_logger
 from mchanhua.ocr import create_engine
+from mchanhua.ocr.lines import merge_result
+from mchanhua.ocr.preprocess import enhance
 from mchanhua.pipeline import run_from_ocr
 from mchanhua.translate import TranslationError, create_translator
 from mchanhua.ui.region_picker import pick_region
@@ -31,6 +33,17 @@ FULLSCREEN_MAX_LINES = 60
 
 # 抓屏时最多连抓几帧来判断画面是否已经稳定，以及每帧之间等多久
 STABLE_INTERVAL_SECONDS = 0.12
+
+
+def _rebuild_result(source, lines: list):
+    """用新的行列表重建一份同样的识别结果（筛选/合并之后要保留后端与耗时）。"""
+
+    return type(source)(
+        lines=lines,
+        elapsed_ms=getattr(source, "elapsed_ms", 0.0),
+        backend=getattr(source, "backend", ""),
+        language=getattr(source, "language", None),
+    )
 
 
 class Application:
@@ -468,7 +481,8 @@ class Application:
         """抓图并识别；选区模式向外多抓一圈，只保留选区内的完整行。"""
 
         capture, image = self._grab_image(region)
-        return capture, image, self._recognize(capture, image, region)
+        ocr_result, _labels = self._ocr_image(image, capture, region=region)
+        return capture, image, ocr_result
 
     def _grab_image(self, region: Region | None):
         """按模式抓一张图：screen = 整屏，padded = 选区外扩一圈。
@@ -493,13 +507,29 @@ class Application:
                 break
         return capture, image
 
-    def _recognize(self, capture: Region | None, image, region: Region | None):
-        """识别；选区模式再按选区筛一遍行。"""
+    def _ocr_image(
+        self,
+        image,
+        capture: Region | None = None,
+        region: Region | None = None,
+        areas: list[tuple[str, Region]] | None = None,
+    ):
+        """预处理 → 识别 →（选区）筛行 → 行合并，统一入口。
 
-        result = self.ocr.recognize(image)
-        if region is None or capture is None:
-            return result
-        return filter_capture(region, capture, result, mode=self.config.ocr.capture_mode)
+        返回 (识别结果, 每行的区域标签)。
+        """
+
+        prepared = enhance(image, self.config.ocr.preprocess)
+        result = self.ocr.recognize(prepared)
+        labels: list[str] = []
+        if areas and capture is not None:
+            lines, labels = filter_area_lines(result, capture, areas)
+            result = _rebuild_result(result, lines)
+        elif region is not None and capture is not None:
+            result = filter_capture(region, capture, result, mode=self.config.ocr.capture_mode)
+        if self.config.ocr.merge_lines:
+            result, labels = merge_result(result, labels or None)
+        return result, labels
 
     def _no_text_message(self, region: Region | None) -> str:
         """选区/整屏没识别到文字时的提示语。"""
@@ -523,23 +553,16 @@ class Application:
                     # 多区域：整屏抓一次、OCR 一次，再按区域筛行合成
                     capture, image = self._grab_image(None)
                     self.queue.put(("call", self._show_after_capture))
-                    raw_result = self.ocr.recognize(image)
-                    lines, line_areas = filter_area_lines(raw_result, capture, areas)
-                    ocr_result = type(raw_result)(
-                        lines=lines,
-                        elapsed_ms=getattr(raw_result, "elapsed_ms", 0.0),
-                        backend=getattr(raw_result, "backend", ""),
-                        language=getattr(raw_result, "language", None),
-                    )
+                    ocr_result, line_areas = self._ocr_image(image, capture, areas=areas)
                 elif image is None:
                     capture, image = self._grab_image(region)
                     # 抓完这一张就把窗口放回来：OCR 和翻译都不需要它继续藏着，
                     # 拖着不放窗口会"消失好久"。
                     self.queue.put(("call", self._show_after_capture))
-                    ocr_result = self._recognize(capture, image, region)
+                    ocr_result, line_areas = self._ocr_image(image, capture, region=region)
                 else:
                     capture = None
-                    ocr_result = self.ocr.recognize(image)
+                    ocr_result, line_areas = self._ocr_image(image)
                 if not ocr_result.lines:
                     # 选区内没有文字时以前会退回整屏结果（等于把屏幕上别的文字翻出来），
                     # 现在明确提示，不翻译、也不覆盖上次的译文。
