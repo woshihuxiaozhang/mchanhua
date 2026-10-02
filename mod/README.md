@@ -1,0 +1,48 @@
+# mchanhua · Minecraft 模组版
+
+桌面版（[仓库根目录](../README.md)）靠"看屏幕 + OCR"翻译，任何游戏都能用，但要经过识别这一步。
+这个模组走另一条路：**直接读游戏里的文本**（聊天、物品名、tooltip、字幕、Boss Bar、任务书……），
+再交给 AI 翻译显示出来——没有 OCR 错字，还能带上"这是物品名还是台词"的上下文。
+
+## 当前状态
+
+刚搭好骨架，能编译、能启动，还没接翻译：
+
+| 项目 | 值 |
+|---|---|
+| 目标版本 | Minecraft **26.1.2** |
+| 加载器 | Fabric Loader **0.19.5** |
+| 依赖 | Fabric API **0.155.3+26.1.2** |
+| Loom | 1.18-SNAPSHOT |
+| Java | **25**（MC 26.x 要求；本机用的是 `D:\Tools\jdk-25`） |
+| 映射 | 官方映射（Yarn 在 26.x 已不再发布，官方模板也已去掉 `mappings` 声明） |
+
+只有客户端侧逻辑：`environment: client`，不会装到服务器上，也不改存档。
+
+## 构建与运行
+
+```bash
+cd mod
+.\gradlew.bat build          # 产物：build/libs/mchanhua-mod-<版本>.jar
+.\gradlew.bat runClient      # 直接启动一个带本模组的客户端（开发用）
+```
+
+第一次构建会下载 Gradle、Minecraft 与依赖，需要几分钟。要求 JDK 25 作为 Gradle 的 JVM
+（本机已在 `%USERPROFILE%\.gradle\gradle.properties` 里指向 `D:\Tools\jdk-25`）。
+
+## 路线图
+
+1. **能读文本**：把聊天 / tooltip / 字幕 / Boss Bar 的文本钩出来（Mixin + Fabric API 事件）；
+2. **能翻译**：接翻译服务（先复用桌面版调好的提示词、术语表、缓存策略），异步 + 限流，别卡帧；
+3. **能显示**：HUD 叠加或就地替换，支持"原文 / 译文 / 双语"三种显示模式，热键开关；
+4. **配置界面**：Cloth Config + ModMenu（API Key、显示模式、翻译源）；
+5. **兜底**：贴图里烤死的英文（地图封面、自制 GUI）仍走 OCR，复用桌面版的识别模型。
+
+## 与桌面版的关系
+
+两边共用一套"翻译口味"：提示词模板、术语表、自动术语表、缓存与 OCR 容错。
+模组版优先读文本，读不到时才考虑 OCR；桌面版继续负责"任何游戏、任何版本"的兜底。
+
+## 许可
+
+[MIT](../LICENSE)（骨架来自 [FabricMC/fabric-example-mod](https://github.com/FabricMC/fabric-example-mod)，CC0）。

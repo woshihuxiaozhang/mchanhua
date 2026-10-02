@@ -1,0 +1,37 @@
+{
+	"schemaVersion": 1,
+	"id": "mchanhua",
+	"version": "${version}",
+	"name": "mchanhua 屏幕取词翻译",
+	"description": "把游戏里的英文/日文交给 AI 翻译，在小窗或 HUD 上显示中文对照。纯客户端模组：只读画面与界面文本，不改存档、不代替玩家发言。",
+	"authors": [
+		"woshihuxiaozhang"
+	],
+	"contact": {
+		"homepage": "https://github.com/woshihuxiaozhang/mchanhua",
+		"sources": "https://github.com/woshihuxiaozhang/mchanhua"
+	},
+	"license": "MIT",
+	"icon": "assets/mchanhua/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"main": [
+			"com.mchanhua.MchanhuaMod"
+		],
+		"client": [
+			"com.mchanhua.client.MchanhuaModClient"
+		]
+	},
+	"mixins": [
+		{
+			"config": "mchanhua.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.1.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
