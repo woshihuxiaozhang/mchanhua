@@ -2,7 +2,12 @@
 	"required": true,
 	"package": "com.mchanhua.client.mixin",
 	"compatibilityLevel": "JAVA_25",
-	"client": [],
+	"client": [
+		"ItemStackTooltipMixin",
+		"DrawContextTooltipMixin",
+		"ChatHudMixin",
+		"InGameHudMixin"
+	],
 	"injectors": {
 		"defaultRequire": 1
 	},

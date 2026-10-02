@@ -14,6 +14,9 @@ repositories {
 loom {
 	splitEnvironmentSourceSets()
 
+	// 这一代 Loom 已默认关掉 Mixin 注解处理器（日志里会提示 remove any loom.mixin configuration），
+	// 所以注解 API 自己加：只 compileOnly，重映射交给 Loom 在 remapJar 时做。
+
 	mods {
 		"mchanhua" {
 			sourceSet sourceSets.main
@@ -26,7 +29,18 @@ dependencies {
 	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
-	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	// 必须用 modImplementation：老版 Fabric API 发的是 intermediary 版本的 jar，
+	// Loom 要把它重映射到 Yarn 才能编译（26.x 那条线 Fabric 已按官方映射发布，所以 implementation 也行）。
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	compileOnly 'net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7'
+	// dev 启动时 Fabric Loader 自己要找 ASM（26.x 那代的 loader 自带，这一代没有），显式补上。
+	// 只影响开发环境，打出来的 jar 里不含这些。
+	runtimeOnly 'net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7'
+	runtimeOnly 'org.ow2.asm:asm:9.7.1'
+	runtimeOnly 'org.ow2.asm:asm-tree:9.7.1'
+	runtimeOnly 'org.ow2.asm:asm-analysis:9.7.1'
+	runtimeOnly 'org.ow2.asm:asm-commons:9.7.1'
+	runtimeOnly 'org.ow2.asm:asm-util:9.7.1'
 }
 
 processResources {
