@@ -28,8 +28,17 @@
 | 自测（hudtest 29 + configtest 107 + translatetest 75） | ✅ 211 项全绿 |
 | 版本层第一批：tooltip（ItemStack + DrawContext）、聊天（ChatHud）、标题/副标题/ActionBar（InGameHud）、HUD 小窗（HudRenderCallback） | ✅ 已移植并在 1.21.1 实测：HUD 正常显示、悬停物品出中文（云杉木门）、聊天出中文（拘留区禁止一切未经授权人员进入）；大标题机制同聊天，截图时机没抓到，待补 |
 | 版本层第二批：热键（H 开关 HUD / J 测试 / K 设置）+ K 设置界面 | ✅ 已移植并在 1.21.1 实测：K 面板正常显示，服务商/模型可选、开关与秒数可改，「测试一下」返回 ✓ 通了：Steel Ingot → 钢锭 |
-| 版本层第三批：告示牌 / 实体名牌 / 悬浮字 / 书页 | ⏳ |
-| 进游戏逐项实测（JDK 21 已装好） | ⏳ 已确认能启动并加载 mod，待逐项验证功能 |
+| 版本层第三批：告示牌 / 实体名牌 / 悬浮字 / 书页 | ✅ 已移植（详见下面的挂点对照） |
+| 进游戏逐项实测 | ✅ 已验：HUD、tooltip、聊天、热键、设置界面、连通性、**实体名牌（诺曼）**、**书页（拘留区…）**、悬浮大字实体已存在（`/data get` 确认）；⏳ 告示牌与悬浮大字的**画面**还没抓到（合成输入一直在和地形较劲） |
+
+### 第三批的挂点（1.21.1 / Yarn）
+
+| 功能 | 1.21.1 的挂点 | 备注 |
+|---|---|---|
+| 告示牌 | `SignBlockEntityRenderer.renderText(..., SignText, ...)` 的 `@ModifyVariable` | 造副本画，方块实体原文不动；1.21.1 的 setter 叫 `withMessage` |
+| 实体名牌 | `EntityRenderer.renderLabelIfPresent` 的 `@Inject` + `@Invoker` 桥 | 方法本身是 protected，必须用 Invoker 才能用译文重画；玩家 ID 跳过 |
+| 悬浮大字 | `DisplayEntityRenderer$TextDisplayEntityRenderer.getData(...)` 的返回值 | 不能挂 `getText()`（被 `writeCustomDataToNbt` 调用，会写进存档）；Data 是 record，重建一份 |
+| 书页 | `BookScreen$Contents.getPage(int)` + `BookScreen.render` 里把 `cachedPageIndex` 打成 -1 | 原版只在页号变化时重新折行，译文晚到会一直挂英文 |
 
 待移植的代码都放在 `port-todo/`，是从 26.x 那版复制过来的"参考实现"：
 按 Yarn 的名字改写一个就搬进 `src/`，并在 `mchanhua.client.mixins.json` 里加一条。

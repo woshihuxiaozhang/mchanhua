@@ -6,7 +6,13 @@
 		"ItemStackTooltipMixin",
 		"DrawContextTooltipMixin",
 		"ChatHudMixin",
-		"InGameHudMixin"
+		"InGameHudMixin",
+		"SignRendererMixin",
+		"EntityNameTagMixin",
+		"EntityRendererInvoker",
+		"BookScreenMixin",
+		"BookContentsMixin",
+		"TextDisplayRendererMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

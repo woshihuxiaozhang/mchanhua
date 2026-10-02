@@ -43,6 +43,21 @@ public final class TextTranslator {
 		return enabled() && config.translateChat;
 	}
 
+	/** 世界里的告示牌要不要翻。 */
+	public static boolean signsEnabled() {
+		return enabled() && config.translateSigns;
+	}
+
+	/** 实体头顶名字 / 世界悬浮字要不要翻（玩家 ID 由调用方跳过）。 */
+	public static boolean nametagsEnabled() {
+		return enabled() && config.translateNametags;
+	}
+
+	/** 书本页面要不要翻。 */
+	public static boolean booksEnabled() {
+		return enabled() && config.translateBooks;
+	}
+
 	/** 当前是否正在"把译文放回游戏"的回放里（钩子见到就放行）。 */
 	public static boolean isReplaying() {
 		return ReplayGuard.active();
