@@ -1,0 +1,22 @@
+{
+	"required": true,
+	"package": "com.mchanhua.client.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"ItemStackTooltipMixin",
+		"DrawContextTooltipMixin",
+		"ChatHudMixin",
+		"InGameHudMixin",
+		"SignRendererMixin",
+		"EntityNameTagMixin",
+		"EntityRendererInvoker",
+		"BookScreenMixin",
+		"TextDisplayRendererMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	},
+	"overwrites": {
+		"requireAnnotations": true
+	}
+}
