@@ -1,0 +1,95 @@
+// 老版本线（1.21.x / 1.20.x / …）：Yarn 映射那一代。
+//
+// 关键点（都实测过）：
+// - 插件 id 必须用旧的 fabric-loom：新 id net.fabricmc.fabric-loom 只覆盖 Loom 1.14+；
+// - Loom 1.14+ 处理不了老 Fabric API 的 intermediary access widener（Expected official namespace）；
+// - 代码用 Yarn 名字（MinecraftClient / DrawContext / ChatHud / InGameHud / ButtonWidget …）。
+plugins {
+	id 'fabric-loom' version "${loom_version}"
+}
+
+repositories {
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"mchanhua" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+dependencies {
+	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = project.java_version as Integer
+	// 源码里有中文注释与文案，明确按 UTF-8 读
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.toVersion(project.java_version)
+	targetCompatibility = JavaVersion.toVersion(project.java_version)
+}
+
+base {
+	archivesName = "mchanhua-legacy-${project.minecraft_version}"
+}
+
+jar {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	from("LICENSE") {
+		rename { "${it}_$projectName"}
+	}
+}
+
+// 与 26.x 那版同样的自测：纯逻辑，不进游戏、不联网
+tasks.register('hudtest', JavaExec) {
+	group = 'mchanhua'
+	description = 'Assert HUD text wrapping keeps long lines inside the panel (no game launch)'
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = 'com.mchanhua.client.hud.HudLayoutSelfTest'
+	jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+}
+
+tasks.register('configtest', JavaExec) {
+	group = 'mchanhua'
+	description = 'Assert the in-game settings draft falls back safely (no game launch)'
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = 'com.mchanhua.client.config.ConfigDraftSelfTest'
+	jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+}
+
+tasks.register('translatetest', JavaExec) {
+	group = 'mchanhua'
+	description = 'Assert replay guard and per-line selection (no game launch)'
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = 'com.mchanhua.client.translate.TranslateLogicSelfTest'
+	jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+}
+
+tasks.named('check').configure {
+	dependsOn 'hudtest'
+	dependsOn 'configtest'
+	dependsOn 'translatetest'
+}
