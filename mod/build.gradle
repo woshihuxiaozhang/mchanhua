@@ -42,6 +42,8 @@ processResources {
 
 tasks.withType(JavaCompile).configureEach {
 	it.options.release = 25
+	// 源码里有中文注释/文案，明确按 UTF-8 读，免得跟着 Windows 默认编码跑
+	it.options.encoding = 'UTF-8'
 }
 
 java {
@@ -87,4 +89,20 @@ tasks.register('selftest', JavaExec) {
 	description = 'Translate a sample tooltip with the real API key (no game launch)'
 	classpath = sourceSets.client.runtimeClasspath
 	mainClass = 'com.mchanhua.client.translate.TranslatorSelfTest'
+}
+
+// HUD 排版自测：不联网、不进游戏，纯断言（折行 / 截断 / 面板宽度）
+// 用法：.\gradlew.bat hudtest
+tasks.register('hudtest', JavaExec) {
+	group = 'mchanhua'
+	description = 'Assert HUD text wrapping keeps long lines inside the panel (no game launch)'
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = 'com.mchanhua.client.hud.HudLayoutSelfTest'
+	// Windows 控制台默认 GBK，自测里有中文，明确一下免得日志变乱码
+	jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+}
+
+// 让 .\gradlew.bat build 也会跑 HUD 排版断言
+tasks.named('check').configure {
+	dependsOn 'hudtest'
 }

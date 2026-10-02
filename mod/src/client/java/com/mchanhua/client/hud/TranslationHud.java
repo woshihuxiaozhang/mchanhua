@@ -83,33 +83,32 @@ public final class TranslationHud implements HudElement {
 		if (minecraft.screen != null) {
 			return;
 		}
-		List<Component> targetLines = new ArrayList<>();
-		List<Component> sourceLines = new ArrayList<>();
 		String title = "mchanhua";
+		int innerWidth = MAX_WIDTH - PADDING * 2;
+		List<String> targetLines = new ArrayList<>();
+		List<String> sourceLines = new ArrayList<>();
 
 		if (lastTarget.isEmpty()) {
-			targetLines.add(Component.literal(config != null && config.ready()
-					? "把鼠标放到物品上看译文"
-					: "还没填 API Key（config/mchanhua.json）"));
+			targetLines.addAll(wrap(minecraft,
+					config != null && config.ready()
+							? "把鼠标放到物品上看译文"
+							: "还没填 API Key（config/mchanhua.json）",
+					innerWidth, MAX_LINES));
 		} else {
-			for (int i = 0; i < Math.min(MAX_LINES, lastTarget.size()); i++) {
-				targetLines.add(Component.literal(clip(lastTarget.get(i))));
-			}
-			if (lastTarget.size() > MAX_LINES) {
-				targetLines.add(Component.literal("…"));
-			}
+			targetLines.addAll(wrapAll(minecraft, lastTarget, innerWidth, MAX_LINES));
 			if (config == null || config.showOriginal) {
-				for (int i = 0; i < Math.min(MAX_LINES, lastSource.size()); i++) {
-					sourceLines.add(Component.literal(clip(lastSource.get(i))));
-				}
-				if (lastSource.size() > MAX_LINES) {
-					sourceLines.add(Component.literal("…"));
-				}
+				sourceLines.addAll(wrapAll(minecraft, lastSource, innerWidth, MAX_LINES));
 			}
 		}
 
-		int width = Math.min(MAX_WIDTH, Math.max(minecraft.font.width(title),
-				maxWidth(minecraft, targetLines, sourceLines)) + PADDING * 2);
+		int contentWidth = minecraft.font.width(title);
+		for (String line : targetLines) {
+			contentWidth = Math.max(contentWidth, minecraft.font.width(line));
+		}
+		for (String line : sourceLines) {
+			contentWidth = Math.max(contentWidth, minecraft.font.width(line));
+		}
+		int width = Math.min(MAX_WIDTH, contentWidth + PADDING * 2);
 		int height = PADDING * 2 + LINE_HEIGHT * (1 + targetLines.size() + sourceLines.size());
 		int x = graphics.guiWidth() - width - MARGIN;
 		int y = MARGIN;
@@ -119,30 +118,21 @@ public final class TranslationHud implements HudElement {
 		graphics.text(minecraft.font, Component.literal(title), x + PADDING, y + PADDING, COLOR_TITLE);
 
 		int lineY = y + PADDING + LINE_HEIGHT;
-		for (Component line : targetLines) {
-			graphics.text(minecraft.font, line, x + PADDING, lineY, COLOR_TARGET);
+		for (String line : targetLines) {
+			graphics.text(minecraft.font, Component.literal(line), x + PADDING, lineY, COLOR_TARGET);
 			lineY += LINE_HEIGHT;
 		}
-		for (Component line : sourceLines) {
-			graphics.text(minecraft.font, line, x + PADDING, lineY, COLOR_SOURCE);
+		for (String line : sourceLines) {
+			graphics.text(minecraft.font, Component.literal(line), x + PADDING, lineY, COLOR_SOURCE);
 			lineY += LINE_HEIGHT;
 		}
 	}
 
-	/** 单行太长就截断（260px 大概放得下这么多字符）。 */
-	private static String clip(String line) {
-		String text = line == null ? "" : line;
-		return text.length() > 34 ? text.substring(0, 33) + "…" : text;
+	private static List<String> wrap(Minecraft minecraft, String line, int maxWidth, int maxLines) {
+		return HudTextLayout.wrap(minecraft.font::width, line, maxWidth, maxLines);
 	}
 
-	private static int maxWidth(Minecraft minecraft, List<Component> first, List<Component> second) {
-		int width = 0;
-		for (Component line : first) {
-			width = Math.max(width, minecraft.font.width(line));
-		}
-		for (Component line : second) {
-			width = Math.max(width, minecraft.font.width(line));
-		}
-		return width;
+	private static List<String> wrapAll(Minecraft minecraft, List<String> lines, int maxWidth, int maxLines) {
+		return HudTextLayout.wrapAll(minecraft.font::width, lines, maxWidth, maxLines);
 	}
 }

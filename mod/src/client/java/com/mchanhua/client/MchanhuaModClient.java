@@ -49,11 +49,21 @@ public class MchanhuaModClient implements ClientModInitializer {
 		registerKeys();
 
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			// 打开任何界面（聊天框、背包、设置…）时这些单键热键都不该生效，
+			// 不然在聊天里打字，句子里带个 h 就会顺手把 HUD 关掉。
+			// 依然把点击消费掉，免得界面关掉之后又被补触发一次。
+			boolean screenOpen = client.screen != null;
 			while (toggleHudKey.consumeClick()) {
+				if (screenOpen) {
+					continue;
+				}
 				TranslationHud.toggle();
 				LOGGER.info("HUD 小窗：{}", TranslationHud.visible() ? "开" : "关");
 			}
 			while (testKey.consumeClick()) {
+				if (screenOpen) {
+					continue;
+				}
 				runTestTranslation();
 			}
 			if (++tickCounter >= FLUSH_INTERVAL_TICKS) {
