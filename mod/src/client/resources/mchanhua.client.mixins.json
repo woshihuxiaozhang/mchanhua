@@ -3,7 +3,9 @@
 	"package": "com.mchanhua.client.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
-		"MchanhuaClientMixin"
+		"MchanhuaClientMixin",
+		"GuiGraphicsTooltipMixin",
+		"ItemStackTooltipMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

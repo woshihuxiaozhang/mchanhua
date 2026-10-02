@@ -79,3 +79,12 @@ publishing {
 		// retrieving dependencies.
 	}
 }
+
+// 翻译链路自测：不进游戏，直接用桌面版的 API Key 打一次真实请求
+// 用法：.\gradlew.bat selftest
+tasks.register('selftest', JavaExec) {
+	group = 'mchanhua'
+	description = 'Translate a sample tooltip with the real API key (no game launch)'
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = 'com.mchanhua.client.translate.TranslatorSelfTest'
+}
