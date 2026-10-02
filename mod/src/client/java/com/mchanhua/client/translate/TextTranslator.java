@@ -19,6 +19,8 @@ public final class TextTranslator {
 	private static TranslationService service;
 	private static MchanhuaConfig config;
 	private static int debugCount = 0;
+	/** 正在"用译文重新显示"时置位：避免同一条文本被自己的钩子再次拦下来。 */
+	private static final ThreadLocal<Boolean> REPLAYING = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
 	private TextTranslator() {
 	}
@@ -40,8 +42,22 @@ public final class TextTranslator {
 		return enabled() && config.translateChat;
 	}
 
+	/** 当前是否正处在"补显示译文"的回放里（钩子见到就放行）。 */
+	public static boolean isReplaying() {
+		return REPLAYING.get();
+	}
+
 	/** 条件不满足时原样返回（渲染线程安全，不做网络等待）。 */
 	public static List<Component> translateLines(List<Component> original, boolean allowed) {
+		return translateLines(original, allowed, false);
+	}
+
+	/**
+	 * @param mirrorToHud 翻好后是否也丢进 HUD 小窗。
+	 *                    tooltip 本身就是就地翻译的，再叠一层 HUD 只会挡视野，所以传 false。
+	 */
+	public static List<Component> translateLines(List<Component> original, boolean allowed,
+			boolean mirrorToHud) {
 		if (!allowed || original == null || original.isEmpty()) {
 			return original;
 		}
@@ -60,18 +76,75 @@ public final class TextTranslator {
 			debugCount++;
 			MchanhuaMod.LOGGER.info("开始后台翻译：{}", sources);
 		}
-		service.request(sources, translated -> Minecraft.getInstance().execute(() ->
-				com.mchanhua.client.hud.TranslationHud.setLast(sources, translated)));
+		service.request(sources, translated -> Minecraft.getInstance().execute(() -> {
+			if (mirrorToHud) {
+				com.mchanhua.client.hud.TranslationHud.setLast(sources, translated);
+			}
+		}));
 		return original;
 	}
 
 	/** 单行文本（聊天、标题、Boss 栏名都用这个）。 */
 	public static Component translateLine(Component line, boolean allowed) {
+		return translateLine(line, allowed, false);
+	}
+
+	public static Component translateLine(Component line, boolean allowed, boolean mirrorToHud) {
 		if (line == null || !allowed) {
 			return line;
 		}
-		List<Component> translated = translateLines(List.of(line), true);
+		List<Component> translated = translateLines(List.of(line), true, mirrorToHud);
 		return translated.isEmpty() ? line : translated.get(0);
+	}
+
+	/** 已经翻好的行（缓存命中）就返回译文，否则返回 null——给"翻好再显示"的文本用。 */
+	public static Component readyOrNull(Component line, boolean allowed) {
+		if (line == null || !allowed) {
+			return line;
+		}
+		String text = line.getString();
+		if (alreadyTarget(List.of(text))) {
+			return line;
+		}
+		List<String> cached = service.cached(List.of(text));
+		if (cached == null || cached.isEmpty()) {
+			return null;
+		}
+		return Component.literal(cached.get(0)).withStyle(line.getStyle());
+	}
+
+	/**
+	 * 翻这句话，翻好后用译文回调（回调在**渲染线程**）。
+	 *
+	 * 用于"一闪而过"的文本：聊天、标题、ActionBar。它们显示时间很短，
+	 * 若按"先原文后替换"的做法，等翻译回来时字幕早没了——所以这里先按住不显示，
+	 * 翻好（或失败）再拿译文重新显示一次。
+	 */
+	public static void requestLater(Component line, boolean allowed, java.util.function.Consumer<Component> replay) {
+		if (line == null || !allowed) {
+			replay.accept(line);
+			return;
+		}
+		Component ready = readyOrNull(line, true);
+		if (ready != null) {
+			replay.accept(ready);
+			return;
+		}
+		String source = line.getString();
+		service.request(List.of(source), translated -> {
+			String text = translated.isEmpty() ? source : translated.get(0);
+			Component result = Component.literal(text).withStyle(line.getStyle());
+			Minecraft.getInstance().execute(() -> {
+				// HUD 里留一份对照（译文 + 原文），因为它会自己收起来，不会一直挡视野
+				com.mchanhua.client.hud.TranslationHud.setLast(List.of(source), List.of(text));
+				REPLAYING.set(true);
+				try {
+					replay.accept(result);
+				} finally {
+					REPLAYING.set(false);
+				}
+			});
+		});
 	}
 
 	/** 用译文重建同样行数的 Component，并保留原来那一行的样式（颜色、粗体等）。 */

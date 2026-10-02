@@ -24,6 +24,8 @@ public final class TranslationHud implements HudElement {
 	private static final int PADDING = 6;
 	private static final int LINE_HEIGHT = 10;
 	private static final int MAX_WIDTH = 260;
+	/** 最多显示几行译文 / 原文（tooltip 那种长文本不会把半个屏幕糊住）。 */
+	private static final int MAX_LINES = 3;
 
 	private static final int COLOR_BACKGROUND = 0xCC101418;
 	private static final int COLOR_BORDER = 0x66FFFFFF;
@@ -33,6 +35,7 @@ public final class TranslationHud implements HudElement {
 
 	private static volatile List<String> lastSource = List.of();
 	private static volatile List<String> lastTarget = List.of();
+	private static volatile long lastUpdateAt = 0L;
 	private static MchanhuaConfig config;
 
 	private TranslationHud() {
@@ -46,6 +49,16 @@ public final class TranslationHud implements HudElement {
 	public static void setLast(List<String> source, List<String> target) {
 		lastSource = List.copyOf(source);
 		lastTarget = List.copyOf(target);
+		lastUpdateAt = System.currentTimeMillis();
+	}
+
+	/** 超过配置的时间没更新就自动收起（0 = 一直显示）。 */
+	private static boolean hiddenByTimeout() {
+		int seconds = config == null ? 6 : config.hudAutoHideSeconds;
+		if (seconds <= 0 || lastUpdateAt == 0L) {
+			return false;
+		}
+		return System.currentTimeMillis() - lastUpdateAt > seconds * 1000L;
 	}
 
 	public static void toggle() {
@@ -61,10 +74,15 @@ public final class TranslationHud implements HudElement {
 
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor graphics, DeltaTracker delta) {
-		if (!visible()) {
+		if (!visible() || hiddenByTimeout()) {
 			return;
 		}
 		Minecraft minecraft = Minecraft.getInstance();
+		// 打开背包/箱子这类界面时不画：物品 tooltip 只在这些界面里出现，
+		// HUD 挤在右上角会正好压在它上面（用户反馈"挡住翻译"）。
+		if (minecraft.screen != null) {
+			return;
+		}
 		List<Component> targetLines = new ArrayList<>();
 		List<Component> sourceLines = new ArrayList<>();
 		String title = "mchanhua";
@@ -74,12 +92,18 @@ public final class TranslationHud implements HudElement {
 					? "把鼠标放到物品上看译文"
 					: "还没填 API Key（config/mchanhua.json）"));
 		} else {
-			for (String line : lastTarget) {
-				targetLines.add(Component.literal(line));
+			for (int i = 0; i < Math.min(MAX_LINES, lastTarget.size()); i++) {
+				targetLines.add(Component.literal(clip(lastTarget.get(i))));
+			}
+			if (lastTarget.size() > MAX_LINES) {
+				targetLines.add(Component.literal("…"));
 			}
 			if (config == null || config.showOriginal) {
-				for (String line : lastSource) {
-					sourceLines.add(Component.literal(line));
+				for (int i = 0; i < Math.min(MAX_LINES, lastSource.size()); i++) {
+					sourceLines.add(Component.literal(clip(lastSource.get(i))));
+				}
+				if (lastSource.size() > MAX_LINES) {
+					sourceLines.add(Component.literal("…"));
 				}
 			}
 		}
@@ -103,6 +127,12 @@ public final class TranslationHud implements HudElement {
 			graphics.text(minecraft.font, line, x + PADDING, lineY, COLOR_SOURCE);
 			lineY += LINE_HEIGHT;
 		}
+	}
+
+	/** 单行太长就截断（260px 大概放得下这么多字符）。 */
+	private static String clip(String line) {
+		String text = line == null ? "" : line;
+		return text.length() > 34 ? text.substring(0, 33) + "…" : text;
 	}
 
 	private static int maxWidth(Minecraft minecraft, List<Component> first, List<Component> second) {

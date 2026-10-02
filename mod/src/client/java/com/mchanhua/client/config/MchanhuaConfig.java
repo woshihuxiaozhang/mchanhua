@@ -35,6 +35,8 @@ public final class MchanhuaConfig {
 	public boolean hudVisible = true;
 	/** HUD 里是否带上原文。 */
 	public boolean showOriginal = true;
+	/** HUD 显示多少秒后自动收起（0 = 一直显示）。挡视野的话就调小。 */
+	public int hudAutoHideSeconds = 6;
 	/** 单次请求超时（秒）。 */
 	public int requestTimeoutSeconds = 30;
 

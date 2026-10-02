@@ -47,6 +47,8 @@ public final class TranslationService {
 
 	/**
 	 * 请求翻译（异步）。onDone 在**后台线程**执行，调用方自己决定怎么切回渲染线程。
+	 *
+	 * 翻译失败时也会回调一次（用原文），免得"等翻译"的调用方把内容弄丢。
 	 */
 	public void request(List<String> lines, Consumer<List<String>> onDone) {
 		String cacheKey = key(lines);
@@ -70,6 +72,7 @@ public final class TranslationService {
 				onDone.accept(translated);
 			} catch (Exception e) {
 				MchanhuaMod.LOGGER.warn("翻译失败：{}", e.toString());
+				onDone.accept(lines);          // 失败就用原文显示，别让这句话消失
 			} finally {
 				inFlight.remove(cacheKey);
 			}
