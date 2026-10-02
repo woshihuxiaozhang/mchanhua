@@ -22,7 +22,14 @@ plugins {
 stonecutter {
 	shared {
 		// 加新版本就在这里加一行，例如：versions '26.1.2', '1.21.1', '1.20.1'
-		versions '26.1.2'
+		// 26.x 那一代：默认脚本（build.gradle = 官方映射 + 新插件 id + 新版 Loom）
+		vers '26.1.2'
+		// Yarn 那一代：换用 build-legacy.gradle（旧插件 id fabric-loom + 当年的 Loom + yarn_mappings）
+		//
+		// 注意：启用 1.21.1 之前，版本层（8 个类 + 11 个 mixin）必须先用 Yarn 的名字改写完，
+		// 否则它会编译不过，而**根 build 会聚合所有节点**，一挂上去 gradlew build 就红。
+		// 所以移植期间先把这行注释掉，改完再放开：
+		// vers('1.21.1').buildscript('build-legacy.gradle')
 		vcsVersion = '26.1.2'
 	}
 	create(rootProject)

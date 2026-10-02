@@ -1,0 +1,12 @@
+// legacy 线（1.21.x / 1.20.x / 1.18.x …）：旧插件 id + 当年的 Loom + Yarn 映射。
+//
+// 为什么必须和 modern 分开：
+// 1. 插件 id 分两段——net.fabricmc.fabric-loom 只覆盖 Loom 1.14+，Yarn 时代用的是 fabric-loom；
+// 2. 老版 Fabric API 的 access widener 是 intermediary 命名空间，Loom 1.14+ 按 official 处理会直接报错
+//    （Expected official namespace for access widener entry, found: intermediary）。
+plugins {
+	id 'fabric-loom' version "${loom_version}"
+}
+
+apply plugin: 'maven-publish'
+apply from: rootProject.file('gradle/common.gradle')
