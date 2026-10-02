@@ -21,6 +21,7 @@ plugins {
 
 stonecutter {
 	shared {
+		// 加新版本就在这里加一行，例如：versions '26.1.2', '1.21.1', '1.20.1'
 		versions '26.1.2'
 		vcsVersion = '26.1.2'
 	}
