@@ -20,7 +20,7 @@ import java.util.List;
  * 提示词沿用桌面版调好的那一套思路：逐行翻译、口语化、保留情绪、专有名词前后一致、
  * 并且只输出一个 JSON 对象（行号 → 译文），方便按行对齐。
  */
-public final class DeepSeekTranslator {
+public final class DeepSeekTranslator implements LineTranslator {
 	private static final Gson GSON = new Gson();
 
 	private static final String SYSTEM_PROMPT = """
@@ -45,6 +45,7 @@ public final class DeepSeekTranslator {
 			.build();
 
 	/** 翻译若干行，返回与输入等长的译文列表；失败抛异常，由调用方兜底。 */
+	@Override
 	public List<String> translate(MchanhuaConfig config, List<String> lines) throws Exception {
 		if (lines.isEmpty()) {
 			return lines;
@@ -77,7 +78,20 @@ public final class DeepSeekTranslator {
 				.POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(body)))
 				.build();
 
-		HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+		// 用 sendAsync + 硬超时：早先直接用 send()，网络卡住时线程会一直吊在那儿，
+		// 单线程队列就被一个卡死的请求堵死——后面的物品全都翻不出来（用户看到的"有些物品没翻译"）。
+		// get(timeout) 保证这条任务一定会还给队列，超时就当失败处理（显示原文，不写缓存）。
+		HttpResponse<String> response;
+		try {
+			response = client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+					.get(Math.max(5, config.requestTimeoutSeconds) + 5L, java.util.concurrent.TimeUnit.SECONDS);
+		} catch (java.util.concurrent.TimeoutException e) {
+			throw new IllegalStateException("请求超时（超过 " + Math.max(5, config.requestTimeoutSeconds)
+					+ " 秒没回应）");
+		} catch (java.util.concurrent.ExecutionException e) {
+			Throwable cause = e.getCause();
+			throw new IllegalStateException("请求失败：" + (cause == null ? e.toString() : cause.toString()));
+		}
 		if (response.statusCode() != 200) {
 			throw new IllegalStateException("翻译服务返回 " + response.statusCode() + "：" + trim(response.body()));
 		}

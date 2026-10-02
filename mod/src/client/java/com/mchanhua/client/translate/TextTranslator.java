@@ -8,19 +8,19 @@ import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
- * 游戏内文本的翻译出口：tooltip、聊天、标题/ActionBar、Boss 栏都走这里。
+ * 游戏内文本的翻译入口：tooltip、聊天、标题/ActionBar、Boss 栏都在这里。
  *
- * 策略是"先原文、后译文"：第一次遇到某段文本先原样显示并后台请求，
- * 翻好之后（通常一秒内）再遇到就直接显示中文，渲染线程从不等待网络。
+ * 两类文本两条路：
+ * - tooltip / Boss 栏这类"一直在那"的：先显示原文，译文回来后就地替换（渲染线程从不等待网络）；
+ * - 聊天 / 标题 / ActionBar 这类"一闪而过"的：先按住不显示，翻好再显示一次。
  */
 public final class TextTranslator {
 	private static TranslationService service;
 	private static MchanhuaConfig config;
 	private static int debugCount = 0;
-	/** 正在"用译文重新显示"时置位：避免同一条文本被自己的钩子再次拦下来。 */
-	private static final ThreadLocal<Boolean> REPLAYING = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
 	private TextTranslator() {
 	}
@@ -42,9 +42,9 @@ public final class TextTranslator {
 		return enabled() && config.translateChat;
 	}
 
-	/** 当前是否正处在"补显示译文"的回放里（钩子见到就放行）。 */
+	/** 当前是否正在"把译文放回游戏"的回放里（钩子见到就放行）。 */
 	public static boolean isReplaying() {
-		return REPLAYING.get();
+		return ReplayGuard.active();
 	}
 
 	/** 条件不满足时原样返回（渲染线程安全，不做网络等待）。 */
@@ -61,26 +61,31 @@ public final class TextTranslator {
 		if (!allowed || original == null || original.isEmpty()) {
 			return original;
 		}
-		List<String> sources = new ArrayList<>(original.size());
+		List<String> all = new ArrayList<>(original.size());
 		for (Component line : original) {
-			sources.add(line.getString());
+			all.add(line.getString());
 		}
-		if (alreadyTarget(sources)) {
-			return original;              // 已经是中文（或上一层已翻过），别再花一次请求
+		// 逐行挑要翻的：混排 tooltip（物品名英文 + 属性行中文）里中文行留着、英文行照翻。
+		// 早先是"整段只要有一行中文就整段跳过"，结果用户看到"有些物品没翻译"。
+		List<Integer> indices = TextLines.indicesToTranslate(all);
+		if (indices.isEmpty()) {
+			return original;
 		}
+		List<String> sources = TextLines.pick(all, indices);
 		List<String> cached = service.cached(sources);
 		if (cached != null) {
-			return rebuild(original, cached);
+			return applyTranslation(original, indices, cached);
 		}
-		if (debugCount < 5) {
+		if (debugCount < 50) {
 			debugCount++;
 			MchanhuaMod.LOGGER.info("开始后台翻译：{}", sources);
 		}
-		service.request(sources, translated -> Minecraft.getInstance().execute(() -> {
+		service.request(sources, translated -> {
 			if (mirrorToHud) {
-				com.mchanhua.client.hud.TranslationHud.setLast(sources, translated);
+				Minecraft.getInstance().execute(() ->
+						com.mchanhua.client.hud.TranslationHud.setLast(sources, translated));
 			}
-		}));
+		});
 		return original;
 	}
 
@@ -103,8 +108,8 @@ public final class TextTranslator {
 			return line;
 		}
 		String text = line.getString();
-		if (alreadyTarget(List.of(text))) {
-			return line;
+		if (!TextLines.needsTranslation(text)) {
+			return line;                 // 本来就是中文，没什么可翻的
 		}
 		List<String> cached = service.cached(List.of(text));
 		if (cached == null || cached.isEmpty()) {
@@ -119,15 +124,18 @@ public final class TextTranslator {
 	 * 用于"一闪而过"的文本：聊天、标题、ActionBar。它们显示时间很短，
 	 * 若按"先原文后替换"的做法，等翻译回来时字幕早没了——所以这里先按住不显示，
 	 * 翻好（或失败）再拿译文重新显示一次。
+	 *
+	 * **所有回放都必须走 {@link ReplayGuard}**：回放会再进一次钩子，
+	 * 不打标记就会"回放→钩子→回放"无限递归，直接把游戏撑爆（PCL 里崩过）。
 	 */
-	public static void requestLater(Component line, boolean allowed, java.util.function.Consumer<Component> replay) {
+	public static void requestLater(Component line, boolean allowed, Consumer<Component> replay) {
 		if (line == null || !allowed) {
-			replay.accept(line);
+			ReplayGuard.run(line, replay);
 			return;
 		}
 		Component ready = readyOrNull(line, true);
 		if (ready != null) {
-			replay.accept(ready);
+			ReplayGuard.run(ready, replay);
 			return;
 		}
 		String source = line.getString();
@@ -137,43 +145,28 @@ public final class TextTranslator {
 			Minecraft.getInstance().execute(() -> {
 				// HUD 里留一份对照（译文 + 原文），因为它会自己收起来，不会一直挡视野
 				com.mchanhua.client.hud.TranslationHud.setLast(List.of(source), List.of(text));
-				REPLAYING.set(true);
-				try {
-					replay.accept(result);
-				} finally {
-					REPLAYING.set(false);
-				}
+				ReplayGuard.run(result, replay);
 			});
 		});
 	}
 
-	/** 用译文重建同样行数的 Component，并保留原来那一行的样式（颜色、粗体等）。 */
-	private static List<Component> rebuild(List<Component> original, List<String> translated) {
+	/** 把译文按行号放回原列表（没翻的行保持原样、原样式）。 */
+	private static List<Component> applyTranslation(List<Component> original, List<Integer> indices,
+			List<String> translated) {
+		List<String> originals = new ArrayList<>(original.size());
+		for (Component line : original) {
+			originals.add(line.getString());
+		}
+		List<String> merged = TextLines.applyTranslations(originals, indices, translated);
 		List<Component> result = new ArrayList<>(original.size());
 		for (int i = 0; i < original.size(); i++) {
-			if (i < translated.size() && translated.get(i) != null && !translated.get(i).isBlank()) {
-				result.add(Component.literal(translated.get(i))
-						.withStyle(original.get(i).getStyle()));
+			String text = merged.get(i);
+			if (text.equals(originals.get(i))) {
+				result.add(original.get(i));      // 没翻的行连样式一起原样留着
 			} else {
-				result.add(original.get(i));
+				result.add(Component.literal(text).withStyle(original.get(i).getStyle()));
 			}
 		}
 		return result;
-	}
-
-	/** 只要有一行是中文，就认为这批已经翻过了（多层钩子不会重复请求）。 */
-	private static boolean alreadyTarget(List<String> lines) {
-		for (String line : lines) {
-			if (line == null || line.isBlank()) {
-				continue;
-			}
-			for (int i = 0; i < line.length(); i++) {
-				char ch = line.charAt(i);
-				if (ch >= 0x4E00 && ch <= 0x9FFF) {
-					return true;
-				}
-			}
-		}
-		return false;
 	}
 }

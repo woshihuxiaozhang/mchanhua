@@ -112,8 +112,19 @@ tasks.register('configtest', JavaExec) {
 	jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
 }
 
+// 翻译链路自测：回放防重入（曾经的 StackOverflow 崩溃）+ 逐行挑选（混排 tooltip 漏翻）
+// 用法：.\gradlew.bat translatetest
+tasks.register('translatetest', JavaExec) {
+	group = 'mchanhua'
+	description = 'Assert replay guard and per-line selection (no game launch)'
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = 'com.mchanhua.client.translate.TranslateLogicSelfTest'
+	jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+}
+
 // 让 .\gradlew.bat build 也会跑 HUD 排版断言
 tasks.named('check').configure {
 	dependsOn 'hudtest'
 	dependsOn 'configtest'
+	dependsOn 'translatetest'
 }
