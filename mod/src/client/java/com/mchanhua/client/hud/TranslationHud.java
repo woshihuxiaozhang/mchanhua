@@ -92,7 +92,7 @@ public final class TranslationHud implements HudElement {
 			targetLines.addAll(wrap(minecraft,
 					config != null && config.ready()
 							? "把鼠标放到物品上看译文"
-							: "还没填 API Key（config/mchanhua.json）",
+							: "还没填 API Key：按 K 打开设置",
 					innerWidth, MAX_LINES));
 		} else {
 			targetLines.addAll(wrapAll(minecraft, lastTarget, innerWidth, MAX_LINES));

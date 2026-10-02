@@ -83,4 +83,22 @@ public final class TranslationService {
 	public void flush() {
 		pool.submit(cache::saveIfDirty);
 	}
+
+	/**
+	 * 设置界面用的连通性测试：拿给定配置真打一次接口，成功失败都以一句人话回报。
+	 *
+	 * 用传进来的 probe 而不是自己的 config，是为了让"只是想试试 key 通不通"不落盘；
+	 * 顺便把 401、超时这类原因原样带给用户看，比只写日志强。
+	 */
+	public void test(MchanhuaConfig probe, Consumer<String> report) {
+		pool.submit(() -> {
+			try {
+				List<String> out = translator.translate(probe, List.of("Steel Ingot"));
+				String first = out.isEmpty() ? "" : out.get(0);
+				report.accept("✓ 通了：Steel Ingot → " + first);
+			} catch (Exception e) {
+				report.accept("✗ 失败：" + e.getMessage());
+			}
+		});
+	}
 }

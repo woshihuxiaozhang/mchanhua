@@ -102,7 +102,18 @@ tasks.register('hudtest', JavaExec) {
 	jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
 }
 
+// 设置界面的配置逻辑自测：数字填错、地址留空、key 带空格这些"手滑"都要稳妥
+// 用法：.\gradlew.bat configtest
+tasks.register('configtest', JavaExec) {
+	group = 'mchanhua'
+	description = 'Assert the in-game settings draft falls back safely (no game launch)'
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = 'com.mchanhua.client.config.ConfigDraftSelfTest'
+	jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+}
+
 // 让 .\gradlew.bat build 也会跑 HUD 排版断言
 tasks.named('check').configure {
 	dependsOn 'hudtest'
+	dependsOn 'configtest'
 }
