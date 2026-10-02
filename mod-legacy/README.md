@@ -26,7 +26,7 @@
 |---|---|
 | 核心链路（缓存 / 队列 / 去重 / 逐行挑选 / 配置 / 模型预设） | ✅ 已从 26.x 原样搬来并跑通 |
 | 自测（hudtest 29 + configtest 107 + translatetest 75） | ✅ 211 项全绿 |
-| 版本层第一批：tooltip（ItemStack + DrawContext）、聊天（ChatHud）、标题/副标题/ActionBar（InGameHud）、HUD 小窗（HudRenderCallback） | ✅ 已移植，游戏里加载成功 |
+| 版本层第一批：tooltip（ItemStack + DrawContext）、聊天（ChatHud）、标题/副标题/ActionBar（InGameHud）、HUD 小窗（HudRenderCallback） | ✅ 已移植并在 1.21.1 实测：HUD 正常显示、悬停物品出中文（云杉木门）、聊天出中文（拘留区禁止一切未经授权人员进入）；大标题机制同聊天，截图时机没抓到，待补 |
 | 版本层第二批：热键 + 设置界面（K 键面板） | ⏳ |
 | 版本层第三批：告示牌 / 实体名牌 / 悬浮字 / 书页 | ⏳ |
 | 进游戏逐项实测（JDK 21 已装好） | ⏳ 已确认能启动并加载 mod，待逐项验证功能 |
