@@ -171,6 +171,9 @@ public final class MchanhuaConfigScreen extends Screen {
 		toggle(fieldX + step, row(5), toggleW, () -> draft.showOriginal,
 				value -> draft.showOriginal = value, this::sourceLabel,
 				"HUD 里要不要连原文一起显示");
+		toggle(fieldX + step * 2, row(5), toggleW, () -> draft.translateNametags,
+				value -> draft.translateNametags = value, this::nameLabel,
+				"实体头顶的名字和世界里的悬浮大字（玩家 ID 不翻）");
 
 		int numberW = Math.min(52, (fieldW - 8) / 2);
 		hideBox = field(fieldX, row(6), numberW, 5, "6");
@@ -295,6 +298,10 @@ public final class MchanhuaConfigScreen extends Screen {
 
 	private String signLabel() {
 		return "牌子：" + onOff(draft.translateSigns);
+	}
+
+	private String nameLabel() {
+		return "名字：" + onOff(draft.translateNametags);
 	}
 
 	private String hudLabel() {

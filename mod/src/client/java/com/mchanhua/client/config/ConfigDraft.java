@@ -29,6 +29,7 @@ public final class ConfigDraft {
 	public boolean translateTooltips = true;
 	public boolean translateChat = true;
 	public boolean translateSigns = true;
+	public boolean translateNametags = true;
 	public boolean hudVisible = true;
 	public boolean showOriginal = true;
 
@@ -47,6 +48,7 @@ public final class ConfigDraft {
 		draft.translateTooltips = config.translateTooltips;
 		draft.translateChat = config.translateChat;
 		draft.translateSigns = config.translateSigns;
+		draft.translateNametags = config.translateNametags;
 		draft.hudVisible = config.hudVisible;
 		draft.showOriginal = config.showOriginal;
 		return draft;
@@ -90,6 +92,7 @@ public final class ConfigDraft {
 		config.translateTooltips = translateTooltips;
 		config.translateChat = translateChat;
 		config.translateSigns = translateSigns;
+		config.translateNametags = translateNametags;
 		config.hudVisible = hudVisible;
 		config.showOriginal = showOriginal;
 

@@ -49,6 +49,7 @@ public final class ConfigDraftSelfTest {
 		source.translateTooltips = false;
 		source.translateChat = true;
 		source.translateSigns = false;
+		source.translateNametags = false;
 		source.hudVisible = false;
 		source.showOriginal = false;
 
@@ -64,6 +65,7 @@ public final class ConfigDraftSelfTest {
 		check(target.requestTimeoutSeconds == 45, "超时秒数要一致");
 		check(!target.translateTooltips && target.translateChat, "开关要一致");
 		check(!target.translateSigns, "告示牌开关要一致");
+		check(!target.translateNametags, "悬浮字开关要一致");
 		check(!target.hudVisible && !target.showOriginal, "显示开关要一致");
 	}
 
@@ -160,6 +162,7 @@ public final class ConfigDraftSelfTest {
 		draft.translateTooltips = !draft.translateTooltips;
 		draft.translateChat = !draft.translateChat;
 		draft.translateSigns = !draft.translateSigns;
+		draft.translateNametags = !draft.translateNametags;
 		draft.hudVisible = !draft.hudVisible;
 		draft.showOriginal = !draft.showOriginal;
 		List<String> notes = new ArrayList<>();
@@ -169,6 +172,7 @@ public final class ConfigDraftSelfTest {
 		check(target.translateTooltips == !fresh.translateTooltips, "tooltip 开关要被翻转写回");
 		check(target.translateChat == !fresh.translateChat, "聊天开关要被翻转写回");
 		check(target.translateSigns == !fresh.translateSigns, "告示牌开关要被翻转写回");
+		check(target.translateNametags == !fresh.translateNametags, "悬浮字开关要被翻转写回");
 		check(target.hudVisible == !fresh.hudVisible, "HUD 开关要被翻转写回");
 		check(target.showOriginal == !fresh.showOriginal, "原文对照开关要被翻转写回");
 	}

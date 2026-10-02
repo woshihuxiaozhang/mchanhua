@@ -9,7 +9,9 @@
 		"ChatComponentMixin",
 		"GuiTitleMixin",
 		"BossEventMixin",
-		"SignRendererMixin"
+		"SignRendererMixin",
+		"EntityNameTagMixin",
+		"TextDisplayMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

@@ -37,6 +37,12 @@ public final class MchanhuaConfig {
 	 * 默认开：地图里的门禁牌、房间号（DISABLE DOOR SECURITY / CELL 01）这类基本都靠它。
 	 */
 	public boolean translateSigns = true;
+	/**
+	 * 实体头顶的名字、以及地图用 text_display 摆的悬浮大字（章节名、任务名）。
+	 *
+	 * 玩家自己的游戏 ID 不翻（那是昵称）。同样只在渲染层动手，实体数据不变。
+	 */
+	public boolean translateNametags = true;
 	/** HUD 小窗是否显示（也可以按热键开关）。 */
 	public boolean hudVisible = true;
 	/** HUD 里是否带上原文。 */
