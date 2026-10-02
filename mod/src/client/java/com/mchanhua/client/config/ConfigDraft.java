@@ -28,6 +28,7 @@ public final class ConfigDraft {
 	public String timeoutSeconds = "30";
 	public boolean translateTooltips = true;
 	public boolean translateChat = true;
+	public boolean translateSigns = true;
 	public boolean hudVisible = true;
 	public boolean showOriginal = true;
 
@@ -45,6 +46,7 @@ public final class ConfigDraft {
 		draft.timeoutSeconds = String.valueOf(config.requestTimeoutSeconds);
 		draft.translateTooltips = config.translateTooltips;
 		draft.translateChat = config.translateChat;
+		draft.translateSigns = config.translateSigns;
 		draft.hudVisible = config.hudVisible;
 		draft.showOriginal = config.showOriginal;
 		return draft;
@@ -87,6 +89,7 @@ public final class ConfigDraft {
 
 		config.translateTooltips = translateTooltips;
 		config.translateChat = translateChat;
+		config.translateSigns = translateSigns;
 		config.hudVisible = hudVisible;
 		config.showOriginal = showOriginal;
 

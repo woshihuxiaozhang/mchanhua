@@ -153,15 +153,24 @@ public final class MchanhuaConfigScreen extends Screen {
 		langBox = field(fieldX, row(3), fieldW, 40, ConfigDraft.DEFAULT_TARGET_LANGUAGE);
 		langBox.setValue(draft.targetLanguage);
 
-		int toggleW = (fieldW - 4) / 2;
+		// 开关排成三列，标签取短的（完整含义放在悬停提示里），一排能放下三个
+		int toggleW = Math.max(48, (fieldW - 8) / 3);
+		int step = toggleW + 4;
 		toggle(fieldX, row(4), toggleW, () -> draft.translateTooltips,
-				value -> draft.translateTooltips = value, this::tipLabel);
-		toggle(fieldX + toggleW + 4, row(4), toggleW, () -> draft.translateChat,
-				value -> draft.translateChat = value, this::chatLabel);
+				value -> draft.translateTooltips = value, this::tipLabel,
+				"悬停物品时的说明文字（tooltip）");
+		toggle(fieldX + step, row(4), toggleW, () -> draft.translateChat,
+				value -> draft.translateChat = value, this::chatLabel,
+				"聊天栏里收到的消息");
+		toggle(fieldX + step * 2, row(4), toggleW, () -> draft.translateSigns,
+				value -> draft.translateSigns = value, this::signLabel,
+				"世界里的告示牌（门禁牌、房间号这些）");
 		toggle(fieldX, row(5), toggleW, () -> draft.hudVisible,
-				value -> draft.hudVisible = value, this::hudLabel);
-		toggle(fieldX + toggleW + 4, row(5), toggleW, () -> draft.showOriginal,
-				value -> draft.showOriginal = value, this::sourceLabel);
+				value -> draft.hudVisible = value, this::hudLabel,
+				"右上角的翻译小窗（热键 H 也能开关）");
+		toggle(fieldX + step, row(5), toggleW, () -> draft.showOriginal,
+				value -> draft.showOriginal = value, this::sourceLabel,
+				"HUD 里要不要连原文一起显示");
 
 		int numberW = Math.min(52, (fieldW - 8) / 2);
 		hideBox = field(fieldX, row(6), numberW, 5, "6");
@@ -268,19 +277,24 @@ public final class MchanhuaConfigScreen extends Screen {
 
 	/** 开关按钮：点一下翻转并刷新自己的标签，免得看不出现在是什么状态。 */
 	private void toggle(int x, int y, int width, java.util.function.BooleanSupplier get,
-			java.util.function.Consumer<Boolean> set, java.util.function.Supplier<String> label) {
+			java.util.function.Consumer<Boolean> set, java.util.function.Supplier<String> label,
+			String tooltip) {
 		addRenderableWidget(Button.builder(Component.literal(label.get()), self -> {
 			set.accept(!get.getAsBoolean());
 			self.setMessage(Component.literal(label.get()));
-		}).bounds(x, y, width, widgetH).build());
+		}).bounds(x, y, width, widgetH).tooltip(Tooltip.create(Component.literal(tooltip))).build());
 	}
 
 	private String tipLabel() {
-		return "tooltip：" + onOff(draft.translateTooltips);
+		return "提示：" + onOff(draft.translateTooltips);
 	}
 
 	private String chatLabel() {
 		return "聊天：" + onOff(draft.translateChat);
+	}
+
+	private String signLabel() {
+		return "牌子：" + onOff(draft.translateSigns);
 	}
 
 	private String hudLabel() {

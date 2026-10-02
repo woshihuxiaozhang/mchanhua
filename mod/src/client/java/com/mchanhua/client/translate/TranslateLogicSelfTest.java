@@ -37,6 +37,7 @@ public final class TranslateLogicSelfTest {
 		mixedTooltipOnlyTranslatesEnglishLines();
 		pickKeepsOrderAndSkipsBadIndices();
 		translationGoesBackToTheRightLine();
+		signLinesOnlyTranslateTheTextOnes();
 
 		System.out.println();
 		System.out.println("[translate-logic] 通过 " + passed + "，失败 " + failed);
@@ -308,6 +309,35 @@ public final class TranslateLogicSelfTest {
 		check(await(done), "排队的请求也要有回调，不能一直挂着");
 		check(got.get() != null && got.get().equals(List.of("C")),
 				"排队超时后就跳过（回原文），实际 " + got.get());
+	}
+
+	/**
+	 * 告示牌固定是 4 行，空白行得原样留着占位——
+	 * 少一行整块牌子的排版都会变，所以这块单独测。
+	 */
+	private static void signLinesOnlyTranslateTheTextOnes() {
+		// 用户截图里那种牌子：两行字，后面两行是空的
+		List<String> sign = List.of("DISABLE", "DOOR SECURITY", "", "");
+		List<Integer> indices = TextLines.indicesToTranslate(sign);
+		check(indices.equals(List.of(0, 1)), "只翻有字的两行，空行不翻，实际 " + indices);
+		List<String> merged = TextLines.applyTranslations(sign, indices, List.of("解除", "门禁"));
+		check(merged.equals(List.of("解除", "门禁", "", "")), "空行要原样保留，实际 " + merged);
+		check(merged.size() == 4, "牌子还是 4 行（行数变了排版就乱了）");
+
+		// 房间号那种
+		List<String> cell = List.of("CELL 01", "", "", "");
+		List<Integer> cellIndices = TextLines.indicesToTranslate(cell);
+		check(cellIndices.equals(List.of(0)), "只有第一行有字");
+		check(TextLines.applyTranslations(cell, cellIndices, List.of("一号牢房"))
+						.equals(List.of("一号牢房", "", "", "")),
+				"只换第一行，其余三行空着");
+
+		// 已经是中文的牌子（地图作者写的中文）不该再翻
+		check(TextLines.indicesToTranslate(List.of("禁止通行", "", "", "")).isEmpty(),
+				"中文牌子一行都不用翻");
+
+		// 整块空牌子
+		check(TextLines.indicesToTranslate(List.of("", "", "", "")).isEmpty(), "空牌子安全返回空");
 	}
 
 	private static List<String> translateAll(List<String> lines) {

@@ -42,6 +42,11 @@ public final class TextTranslator {
 		return enabled() && config.translateChat;
 	}
 
+	/** 世界里的告示牌要不要翻（走路经过的门禁牌、房间号那些）。 */
+	public static boolean signsEnabled() {
+		return enabled() && config.translateSigns;
+	}
+
 	/** 当前是否正在"把译文放回游戏"的回放里（钩子见到就放行）。 */
 	public static boolean isReplaying() {
 		return ReplayGuard.active();

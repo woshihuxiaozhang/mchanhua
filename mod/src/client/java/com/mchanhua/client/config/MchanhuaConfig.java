@@ -31,6 +31,12 @@ public final class MchanhuaConfig {
 	 * 有些服务器不允许这么做，所以这个开关单独拿出来，随时可以关。
 	 */
 	public boolean translateChat = true;
+	/**
+	 * 翻译世界里的告示牌文字（渲染状态层面替换，不动存档数据、也不动编辑界面）。
+	 *
+	 * 默认开：地图里的门禁牌、房间号（DISABLE DOOR SECURITY / CELL 01）这类基本都靠它。
+	 */
+	public boolean translateSigns = true;
 	/** HUD 小窗是否显示（也可以按热键开关）。 */
 	public boolean hudVisible = true;
 	/** HUD 里是否带上原文。 */
