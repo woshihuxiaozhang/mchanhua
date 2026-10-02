@@ -43,6 +43,13 @@ public final class MchanhuaConfig {
 	 * 玩家自己的游戏 ID 不翻（那是昵称）。同样只在渲染层动手，实体数据不变。
 	 */
 	public boolean translateNametags = true;
+	/**
+	 * 书本（成书）里的页面文字。
+	 *
+	 * 书页是用 \n 手动分行的，所以是"按行翻再拼回去"，行数一个不多一个不少，
+	 * 免得排版乱掉。同样只动画面，书里的数据不变。
+	 */
+	public boolean translateBooks = true;
 	/** HUD 小窗是否显示（也可以按热键开关）。 */
 	public boolean hudVisible = true;
 	/** HUD 里是否带上原文。 */

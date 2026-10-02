@@ -38,6 +38,7 @@ public final class TranslateLogicSelfTest {
 		pickKeepsOrderAndSkipsBadIndices();
 		translationGoesBackToTheRightLine();
 		signLinesOnlyTranslateTheTextOnes();
+		bookPageKeepsItsLineBreaks();
 
 		System.out.println();
 		System.out.println("[translate-logic] 通过 " + passed + "，失败 " + failed);
@@ -338,6 +339,36 @@ public final class TranslateLogicSelfTest {
 
 		// 整块空牌子
 		check(TextLines.indicesToTranslate(List.of("", "", "", "")).isEmpty(), "空牌子安全返回空");
+	}
+
+	/**
+	 * 书页：作者用 \n 手动分好行，翻完必须**行数一样**，否则整页排版就乱了。
+	 * 这里复刻 TextTranslator.translateMultiline 的拆分/贴回/拼接流程。
+	 */
+	private static void bookPageKeepsItsLineBreaks() {
+		String page = "The Detention Sector\nhad remained out of reach.\n\nCrazled had always\nbeen a difficult man.";
+		List<String> rawLines = List.of(page.split("\n", -1));
+		check(rawLines.size() == 5, "按 \\n 拆出来 5 行，实际 " + rawLines.size());
+		check(rawLines.get(2).isEmpty(), "第三行是空行（作者分段），要原样保留");
+
+		List<Integer> indices = TextLines.indicesToTranslate(rawLines);
+		check(indices.equals(List.of(0, 1, 3, 4)), "只翻有英文的四行，空行跳过，实际 " + indices);
+		List<String> picked = TextLines.pick(rawLines, indices);
+		check(picked.size() == 4, "送出去 4 行");
+
+		List<String> merged = TextLines.applyTranslations(rawLines, indices,
+				List.of("拘留区", "已经有一段时间够不着了。", "克雷兹德一向", "是个难打交道的人。"));
+		String joined = String.join("\n", merged);
+		check(merged.size() == rawLines.size(), "行数必须一样");
+		check(joined.split("\n", -1).length == 5, "拼回去还是 5 行");
+		check(joined.contains("\n\n"), "空行还在（分段没被吃掉）");
+		check(joined.startsWith("拘留区\n已经有一段时间够不着了。\n\n克雷兹德一向"),
+				"顺序要对上，实际 " + joined.replace("\n", "\\n"));
+
+		// 已经是中文的书页不用翻
+		String chinese = "第一行\n\n第二行";
+		check(TextLines.indicesToTranslate(List.of(chinese.split("\n", -1))).isEmpty(),
+				"中文书页一行都不用翻");
 	}
 
 	private static List<String> translateAll(List<String> lines) {

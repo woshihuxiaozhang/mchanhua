@@ -153,27 +153,32 @@ public final class MchanhuaConfigScreen extends Screen {
 		langBox = field(fieldX, row(3), fieldW, 40, ConfigDraft.DEFAULT_TARGET_LANGUAGE);
 		langBox.setValue(draft.targetLanguage);
 
-		// 开关排成三列，标签取短的（完整含义放在悬停提示里），一排能放下三个
-		int toggleW = Math.max(48, (fieldW - 8) / 3);
+		// 开关排成四列，标签取短的（完整含义放在悬停提示里）
+		int toggleW = Math.max(38, (fieldW - 12) / 4);
 		int step = toggleW + 4;
-		toggle(fieldX, row(4), toggleW, () -> draft.translateTooltips,
+		int rowA = row(4);
+		int rowB = row(5);
+		toggle(fieldX, rowA, toggleW, () -> draft.translateTooltips,
 				value -> draft.translateTooltips = value, this::tipLabel,
 				"悬停物品时的说明文字（tooltip）");
-		toggle(fieldX + step, row(4), toggleW, () -> draft.translateChat,
+		toggle(fieldX + step, rowA, toggleW, () -> draft.translateChat,
 				value -> draft.translateChat = value, this::chatLabel,
 				"聊天栏里收到的消息");
-		toggle(fieldX + step * 2, row(4), toggleW, () -> draft.translateSigns,
+		toggle(fieldX + step * 2, rowA, toggleW, () -> draft.translateSigns,
 				value -> draft.translateSigns = value, this::signLabel,
 				"世界里的告示牌（门禁牌、房间号这些）");
-		toggle(fieldX, row(5), toggleW, () -> draft.hudVisible,
-				value -> draft.hudVisible = value, this::hudLabel,
-				"右上角的翻译小窗（热键 H 也能开关）");
-		toggle(fieldX + step, row(5), toggleW, () -> draft.showOriginal,
-				value -> draft.showOriginal = value, this::sourceLabel,
-				"HUD 里要不要连原文一起显示");
-		toggle(fieldX + step * 2, row(5), toggleW, () -> draft.translateNametags,
+		toggle(fieldX + step * 3, rowA, toggleW, () -> draft.translateNametags,
 				value -> draft.translateNametags = value, this::nameLabel,
 				"实体头顶的名字和世界里的悬浮大字（玩家 ID 不翻）");
+		toggle(fieldX, rowB, toggleW, () -> draft.translateBooks,
+				value -> draft.translateBooks = value, this::bookLabel,
+				"书本里的页面文字（按行翻，排版不变）");
+		toggle(fieldX + step, rowB, toggleW, () -> draft.hudVisible,
+				value -> draft.hudVisible = value, this::hudLabel,
+				"右上角的翻译小窗（热键 H 也能开关）");
+		toggle(fieldX + step * 2, rowB, toggleW, () -> draft.showOriginal,
+				value -> draft.showOriginal = value, this::sourceLabel,
+				"HUD 里要不要连原文一起显示");
 
 		int numberW = Math.min(52, (fieldW - 8) / 2);
 		hideBox = field(fieldX, row(6), numberW, 5, "6");
@@ -289,27 +294,31 @@ public final class MchanhuaConfigScreen extends Screen {
 	}
 
 	private String tipLabel() {
-		return "提示：" + onOff(draft.translateTooltips);
+		return "提示:" + onOff(draft.translateTooltips);
 	}
 
 	private String chatLabel() {
-		return "聊天：" + onOff(draft.translateChat);
+		return "聊天:" + onOff(draft.translateChat);
 	}
 
 	private String signLabel() {
-		return "牌子：" + onOff(draft.translateSigns);
+		return "牌子:" + onOff(draft.translateSigns);
 	}
 
 	private String nameLabel() {
-		return "名字：" + onOff(draft.translateNametags);
+		return "名字:" + onOff(draft.translateNametags);
+	}
+
+	private String bookLabel() {
+		return "书本:" + onOff(draft.translateBooks);
 	}
 
 	private String hudLabel() {
-		return "HUD：" + onOff(draft.hudVisible);
+		return "HUD:" + onOff(draft.hudVisible);
 	}
 
 	private String sourceLabel() {
-		return "原文：" + onOff(draft.showOriginal);
+		return "原文:" + onOff(draft.showOriginal);
 	}
 
 	private static String onOff(boolean value) {

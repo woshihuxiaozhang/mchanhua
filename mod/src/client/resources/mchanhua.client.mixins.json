@@ -11,7 +11,9 @@
 		"BossEventMixin",
 		"SignRendererMixin",
 		"EntityNameTagMixin",
-		"TextDisplayMixin"
+		"TextDisplayMixin",
+		"BookAccessMixin",
+		"BookViewScreenMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

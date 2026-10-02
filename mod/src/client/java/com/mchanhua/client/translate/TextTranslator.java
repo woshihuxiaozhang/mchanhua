@@ -52,6 +52,43 @@ public final class TextTranslator {
 		return enabled() && config.translateNametags;
 	}
 
+	/** 书本页面要不要翻。 */
+	public static boolean booksEnabled() {
+		return enabled() && config.translateBooks;
+	}
+
+	/**
+	 * 带换行的整页文本（书页）：**按行**翻再拼回去。
+	 *
+	 * 书页里的 {@code \n} 是作者自己分好的行，行数或顺序一变排版就乱，
+	 * 所以这里一行对一行地贴回去（空行原样留着）。
+	 * 还没翻好时先把原文交出去，等缓存里有了，下一帧自然就换成译文。
+	 */
+	public static Component translateMultiline(Component page, boolean allowed) {
+		if (page == null || !allowed) {
+			return page;
+		}
+		String raw = page.getString();
+		if (raw.isEmpty()) {
+			return page;
+		}
+		List<String> rawLines = List.of(raw.split("\n", -1));
+		List<Integer> indices = TextLines.indicesToTranslate(rawLines);
+		if (indices.isEmpty()) {
+			return page;
+		}
+		List<String> picked = TextLines.pick(rawLines, indices);
+		List<String> cached = service.cached(picked);
+		if (cached == null) {
+			service.request(picked, translated -> {
+				// 结果进缓存就够了，界面下一帧自己会取到
+			});
+			return page;
+		}
+		List<String> merged = TextLines.applyTranslations(rawLines, indices, cached);
+		return Component.literal(String.join("\n", merged)).withStyle(page.getStyle());
+	}
+
 	/** 当前是否正在"把译文放回游戏"的回放里（钩子见到就放行）。 */
 	public static boolean isReplaying() {
 		return ReplayGuard.active();
