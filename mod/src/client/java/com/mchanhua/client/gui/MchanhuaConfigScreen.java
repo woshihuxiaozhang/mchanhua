@@ -2,6 +2,7 @@ package com.mchanhua.client.gui;
 
 import com.mchanhua.client.config.ConfigDraft;
 import com.mchanhua.client.config.MchanhuaConfig;
+import com.mchanhua.client.config.ProviderPresets;
 import com.mchanhua.client.hud.HudTextLayout;
 import com.mchanhua.client.translate.TranslationService;
 
@@ -9,6 +10,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
@@ -64,6 +66,14 @@ public final class MchanhuaConfigScreen extends Screen {
 	private EditBox langBox;
 	private EditBox hideBox;
 	private EditBox timeoutBox;
+	private Button providerButton;
+	private Button modelButton;
+	private Button urlModeButton;
+	private Button modelModeButton;
+
+	/** true = 接口地址/模型用手填，false = 用可选列表。 */
+	private boolean customUrl;
+	private boolean customModel;
 
 	private int panelLeft;
 	private int panelTop;
@@ -108,10 +118,38 @@ public final class MchanhuaConfigScreen extends Screen {
 			button.setMessage(Component.literal(maskKey ? "显示" : "隐藏"));
 		}).bounds(fieldX + fieldW - 52, row(0), 52, widgetH).build());
 
-		urlBox = field(fieldX, row(1), fieldW, 200, ConfigDraft.DEFAULT_BASE_URL);
+		urlBox = field(fieldX, row(1), fieldW - 56, 200, ConfigDraft.DEFAULT_BASE_URL);
 		urlBox.setValue(draft.baseUrl);
-		modelBox = field(fieldX, row(2), fieldW, 100, ConfigDraft.DEFAULT_MODEL);
+		providerButton = addRenderableWidget(Button.builder(
+						Component.literal(ProviderPresets.labelOf(draft.baseUrl)), button -> {
+							applyProvider(ProviderPresets.nextPreset(currentBaseUrl()));
+						})
+				.bounds(fieldX, row(1), fieldW - 56, widgetH)
+				.tooltip(Tooltip.create(Component.literal("点一下换下一个服务商（接口地址和默认模型一起换）")))
+				.build());
+		urlModeButton = addRenderableWidget(Button.builder(Component.literal("手填"), button -> {
+			customUrl = !customUrl;
+			syncProviderRow();
+		}).bounds(fieldX + fieldW - 52, row(1), 52, widgetH)
+				.tooltip(Tooltip.create(Component.literal("认不出的服务商就在这里手填接口地址")))
+				.build());
+
+		modelBox = field(fieldX, row(2), fieldW - 56, 100, ConfigDraft.DEFAULT_MODEL);
 		modelBox.setValue(draft.model);
+		modelButton = addRenderableWidget(Button.builder(Component.literal(draft.model), button -> {
+					List<String> models = ProviderPresets.modelsFor(currentBaseUrl());
+					setModel(ProviderPresets.next(models, draft.model));
+				})
+				.bounds(fieldX, row(2), fieldW - 56, widgetH)
+				.tooltip(Tooltip.create(Component.literal("点一下换下一个模型")))
+				.build());
+		modelModeButton = addRenderableWidget(Button.builder(Component.literal("手填"), button -> {
+			customModel = !customModel;
+			syncModelRow();
+		}).bounds(fieldX + fieldW - 52, row(2), 52, widgetH)
+				.tooltip(Tooltip.create(Component.literal("列表里没有的模型就手填")))
+				.build());
+
 		langBox = field(fieldX, row(3), fieldW, 40, ConfigDraft.DEFAULT_TARGET_LANGUAGE);
 		langBox.setValue(draft.targetLanguage);
 
@@ -141,6 +179,80 @@ public final class MchanhuaConfigScreen extends Screen {
 			save();
 			onClose();
 		}).bounds(panelLeft + 22 + buttonW * 2, buttonsY, buttonW, widgetH).build());
+
+		customUrl = ProviderPresets.isCustom(ProviderPresets.guess(draft.baseUrl));
+		customModel = !ProviderPresets.modelsFor(draft.baseUrl).contains(draft.model);
+		syncProviderRow();
+		syncModelRow();
+	}
+
+	/** 以输入框里的地址为准（列表模式下两者是同步的）。 */
+	private String currentBaseUrl() {
+		return customUrl ? urlBox.getValue() : draft.baseUrl;
+	}
+
+	private void setModel(String model) {
+		if (model == null || model.isBlank()) {
+			return;
+		}
+		draft.model = model;
+		modelBox.setValue(model);
+		modelButton.setMessage(Component.literal(model));
+	}
+
+	/** 换服务商：地址和默认模型一起换，免得拿 A 家的模型去请求 B 家。 */
+	private void applyProvider(ProviderPresets.Preset preset) {
+		draft.baseUrl = preset.baseUrl;
+		urlBox.setValue(preset.baseUrl);
+		providerButton.setMessage(Component.literal(preset.label));
+		if (!preset.models.contains(draft.model)) {
+			setModel(preset.defaultModel());
+		}
+		customModel = preset.models.isEmpty();
+		syncModelRow();
+	}
+
+	/** 接口地址行：列表模式显示服务商按钮，手填模式显示输入框。 */
+	private void syncProviderRow() {
+		urlBox.visible = customUrl;
+		urlBox.active = customUrl;
+		providerButton.visible = !customUrl;
+		providerButton.active = !customUrl;
+		urlModeButton.setMessage(Component.literal(customUrl ? "列表" : "手填"));
+		if (customUrl) {
+			urlBox.setValue(draft.baseUrl);
+		} else {
+			ProviderPresets.Preset preset = ProviderPresets.guess(draft.baseUrl);
+			if (ProviderPresets.isCustom(preset)) {
+				applyProvider(ProviderPresets.all().get(0));
+			} else {
+				providerButton.setMessage(Component.literal(preset.label));
+			}
+		}
+	}
+
+	/** 模型行：列表模式显示模型按钮，手填模式显示输入框。 */
+	private void syncModelRow() {
+		modelBox.visible = customModel;
+		modelBox.active = customModel;
+		modelButton.visible = !customModel;
+		modelButton.active = !customModel;
+		modelModeButton.setMessage(Component.literal(customModel ? "列表" : "手填"));
+		if (customModel) {
+			modelBox.setValue(draft.model);
+			return;
+		}
+		List<String> models = ProviderPresets.modelsFor(customUrl ? urlBox.getValue() : draft.baseUrl);
+		if (models.isEmpty()) {
+			customModel = true;          // 认不出的服务商只能手填
+			syncModelRow();
+			return;
+		}
+		if (!models.contains(draft.model)) {
+			setModel(models.get(0));
+		} else {
+			modelButton.setMessage(Component.literal(draft.model));
+		}
 	}
 
 	private int row(int index) {

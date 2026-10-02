@@ -90,7 +90,7 @@ public final class ConfigDraft {
 		config.hudVisible = hudVisible;
 		config.showOriginal = showOriginal;
 
-		if (!config.ready()) {
+		if (!config.ready() && ProviderPresets.needsKey(config.baseUrl)) {
 			notes.add("还没填 API Key，填上才能翻译");
 		}
 		return notes;

@@ -73,6 +73,7 @@ public final class MchanhuaConfig {
 	}
 
 	public boolean ready() {
-		return apiKey != null && !apiKey.isBlank();
+		// 本地 Ollama 之类的服务不需要 key，别把它误判成"没配好"
+		return (apiKey != null && !apiKey.isBlank()) || !ProviderPresets.needsKey(baseUrl);
 	}
 }

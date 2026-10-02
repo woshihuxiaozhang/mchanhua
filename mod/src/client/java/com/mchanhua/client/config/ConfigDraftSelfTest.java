@@ -1,7 +1,9 @@
 package com.mchanhua.client.config;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 设置界面的配置逻辑自测：不进游戏、不联网，只跑断言。
@@ -24,6 +26,10 @@ public final class ConfigDraftSelfTest {
 		maskHidesTheMiddleOfTheKey();
 		missingKeyIsReported();
 		switchesAreCopied();
+		providerPresetsAreUsable();
+		modelCyclingWrapsAround();
+		providerCyclingStaysOnKnownOnes();
+		localOllamaDoesNotNeedKey();
 
 		System.out.println();
 		System.out.println("[config-draft] 通过 " + passed + "，失败 " + failed);
@@ -161,6 +167,85 @@ public final class ConfigDraftSelfTest {
 		check(target.translateChat == !fresh.translateChat, "聊天开关要被翻转写回");
 		check(target.hudVisible == !fresh.hudVisible, "HUD 开关要被翻转写回");
 		check(target.showOriginal == !fresh.showOriginal, "原文对照开关要被翻转写回");
+	}
+
+	private static void providerPresetsAreUsable() {
+		check(ProviderPresets.all().size() >= 7, "预设里至少要有 7 个条目（含自定义）");
+		check("deepseek".equals(ProviderPresets.guess("https://api.deepseek.com").key), "认得出 DeepSeek");
+		check("deepseek".equals(ProviderPresets.guess("https://api.deepseek.com/v1/chat/completions").key),
+				"带路径也认得出 DeepSeek");
+		check("openai".equals(ProviderPresets.guess("https://api.openai.com/v1").key), "认得出 OpenAI");
+		check("moonshot".equals(ProviderPresets.guess("https://api.moonshot.cn/v1").key), "认得出 Kimi");
+		check("dashscope".equals(
+				ProviderPresets.guess("https://dashscope.aliyuncs.com/compatible-mode/v1").key), "认得出通义千问");
+		check("zhipu".equals(ProviderPresets.guess("https://open.bigmodel.cn/api/paas/v4").key), "认得出智谱");
+		check("siliconflow".equals(ProviderPresets.guess("https://api.siliconflow.cn/v1").key), "认得出硅基流动");
+		check("ollama".equals(ProviderPresets.guess("http://localhost:11434/v1").key), "认得出本地 Ollama");
+		check(ProviderPresets.isCustom(ProviderPresets.guess("https://我自己的服务器.example.com/v1")),
+				"认不出的地址要当自定义");
+		check(ProviderPresets.isCustom(ProviderPresets.guess("")), "空地址就是自定义");
+
+		for (ProviderPresets.Preset preset : ProviderPresets.all()) {
+			if (ProviderPresets.isCustom(preset)) {
+				continue;
+			}
+			check(!preset.label.isBlank(), "预设要有名字：" + preset.key);
+			check(!preset.baseUrl.isBlank(), "预设要有地址：" + preset.key);
+			check(!preset.models.isEmpty(), "预设要有可选模型：" + preset.key);
+			check(ProviderPresets.guess(preset.baseUrl).key.equals(preset.key),
+					"用预设地址要能反推回它自己：" + preset.key);
+		}
+		check(ProviderPresets.modelsFor("https://api.deepseek.com").contains("deepseek-chat"),
+				"DeepSeek 列表里要有 deepseek-chat");
+		check(ProviderPresets.modelsFor("https://我自己的服务器.example.com/v1").isEmpty(),
+				"自定义服务商不预设模型，交给手填");
+	}
+
+	private static void modelCyclingWrapsAround() {
+		List<String> models = ProviderPresets.modelsFor("https://api.deepseek.com");
+		check(models.size() >= 2, "DeepSeek 至少要有两个模型可切");
+		String first = models.get(0);
+		check(models.get(1).equals(ProviderPresets.next(models, first)), "点一下要换到第二个");
+		check(first.equals(ProviderPresets.next(models, models.get(models.size() - 1))),
+				"最后一个的下一轮要回到第一个");
+		check(first.equals(ProviderPresets.next(models, "不存在的模型")), "认不出的模型回到第一个");
+		check("x".equals(ProviderPresets.next(List.of(), "x")), "空列表原样返回，别崩");
+		check("x".equals(ProviderPresets.next(null, "x")), "null 列表原样返回，别崩");
+	}
+
+	private static void providerCyclingStaysOnKnownOnes() {
+		String baseUrl = "https://api.deepseek.com";
+		Set<String> seen = new HashSet<>();
+		for (int i = 0; i < ProviderPresets.all().size(); i++) {
+			ProviderPresets.Preset preset = ProviderPresets.nextPreset(baseUrl);
+			check(!ProviderPresets.isCustom(preset), "循环里不该出现自定义：" + preset.key);
+			seen.add(preset.key);
+			baseUrl = preset.baseUrl;
+		}
+		check(seen.contains("deepseek"), "循环要能回到 DeepSeek");
+		check(seen.contains("ollama"), "循环要能走到本地 Ollama");
+		check(seen.size() >= 6, "循环要覆盖常见服务商，实际 " + seen.size());
+	}
+
+	private static void localOllamaDoesNotNeedKey() {
+		ConfigDraft draft = new ConfigDraft();
+		draft.baseUrl = "http://localhost:11434/v1";
+		draft.model = "qwen2.5:7b";
+		draft.apiKey = "";
+		MchanhuaConfig target = new MchanhuaConfig();
+		List<String> notes = draft.applyTo(target);
+		check(target.ready(), "本地 Ollama 不填 key 也算配好了");
+		check(!ProviderPresets.needsKey(target.baseUrl), "本地服务不需要 key");
+		check(notes.stream().noneMatch(note -> note.contains("API Key")),
+				"本地服务不该催我填 key：" + notes);
+
+		ConfigDraft remote = new ConfigDraft();
+		remote.baseUrl = "https://api.moonshot.cn/v1";
+		remote.apiKey = "";
+		MchanhuaConfig remoteTarget = new MchanhuaConfig();
+		check(remote.applyTo(remoteTarget).stream().anyMatch(note -> note.contains("API Key")),
+				"远程服务没填 key 还是要提醒");
+		check(!remoteTarget.ready(), "远程服务没 key 就是没配好");
 	}
 
 	private static void check(boolean condition, String message) {
