@@ -2,6 +2,7 @@ package com.mchanhua.client;
 
 import com.mchanhua.client.config.MchanhuaConfig;
 import com.mchanhua.client.hud.TranslationHud;
+import com.mchanhua.client.gui.MchanhuaConfigScreen;
 import com.mchanhua.client.translate.TextTranslator;
 import com.mchanhua.client.translate.TranslationService;
 
@@ -61,6 +62,13 @@ public class MchanhuaModClient implements ClientModInitializer {
 				}
 				runTestTranslation();
 			}
+			while (configKey.wasPressed()) {
+				// 设置界面本身就是界面，所以这里不能用 screenOpen 把它挡掉
+				if (client.currentScreen == null && client.world != null) {
+					LOGGER.info("打开设置界面（热键 K）");
+					client.setScreen(new MchanhuaConfigScreen(config, service, null));
+				}
+			}
 			if (++tickCounter >= FLUSH_INTERVAL_TICKS) {
 				tickCounter = 0;
 				service.flush();
@@ -76,12 +84,15 @@ public class MchanhuaModClient implements ClientModInitializer {
 
 	private static KeyBinding toggleHudKey;
 	private static KeyBinding testKey;
+	private static KeyBinding configKey;
 
 	private static void registerKeys() {
 		toggleHudKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
 				"key.mchanhua.toggle_hud", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_H, KEY_CATEGORY));
 		testKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
 				"key.mchanhua.test", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_J, KEY_CATEGORY));
+		configKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+				"key.mchanhua.config", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_K, KEY_CATEGORY));
 	}
 
 	/** 按 J：拿一段示例文本走一遍完整链路（配置 → 请求 → 缓存 → HUD）。 */
