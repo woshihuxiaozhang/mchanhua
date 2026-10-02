@@ -5,7 +5,10 @@
 	"client": [
 		"MchanhuaClientMixin",
 		"GuiGraphicsTooltipMixin",
-		"ItemStackTooltipMixin"
+		"ItemStackTooltipMixin",
+		"ChatComponentMixin",
+		"GuiTitleMixin",
+		"BossEventMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

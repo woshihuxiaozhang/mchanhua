@@ -24,6 +24,13 @@ public final class MchanhuaConfig {
 
 	/** 悬停物品时自动翻译 tooltip。 */
 	public boolean translateTooltips = true;
+	/**
+	 * 翻译聊天栏里收到的消息。
+	 *
+	 * 注意：多人服务器上，这等于把聊天内容发给第三方翻译服务，
+	 * 有些服务器不允许这么做，所以这个开关单独拿出来，随时可以关。
+	 */
+	public boolean translateChat = true;
 	/** HUD 小窗是否显示（也可以按热键开关）。 */
 	public boolean hudVisible = true;
 	/** HUD 里是否带上原文。 */

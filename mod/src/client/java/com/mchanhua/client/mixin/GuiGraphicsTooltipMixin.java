@@ -1,6 +1,6 @@
 package com.mchanhua.client.mixin;
 
-import com.mchanhua.client.tooltip.TooltipTranslator;
+import com.mchanhua.client.translate.TextTranslator;
 
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
@@ -30,7 +30,7 @@ public class GuiGraphicsTooltipMixin {
 		if (lines == null || lines.isEmpty()) {
 			return lines;
 		}
-		return TooltipTranslator.translate(lines);
+		return TextTranslator.translateLines(lines, TextTranslator.tooltipsEnabled());
 	}
 
 	/**
@@ -42,7 +42,7 @@ public class GuiGraphicsTooltipMixin {
 			argsOnly = true
 	)
 	private Component mchanhua$translateSingleLine(Component line) {
-		return TooltipTranslator.translateComponent(line);
+		return TextTranslator.translateLine(line, TextTranslator.tooltipsEnabled());
 	}
 
 	@ModifyVariable(
@@ -51,6 +51,6 @@ public class GuiGraphicsTooltipMixin {
 			argsOnly = true
 	)
 	private Component mchanhua$translateSingleLineStyled(Component line) {
-		return TooltipTranslator.translateComponent(line);
+		return TextTranslator.translateLine(line, TextTranslator.tooltipsEnabled());
 	}
 }

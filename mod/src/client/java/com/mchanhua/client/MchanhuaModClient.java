@@ -3,8 +3,8 @@ package com.mchanhua.client;
 import com.mchanhua.MchanhuaMod;
 import com.mchanhua.client.config.MchanhuaConfig;
 import com.mchanhua.client.hud.TranslationHud;
-import com.mchanhua.client.tooltip.TooltipTranslator;
 import com.mchanhua.client.translate.TranslationService;
+import com.mchanhua.client.translate.TextTranslator;
 import com.mojang.blaze3d.platform.InputConstants;
 
 import net.fabricmc.api.ClientModInitializer;
@@ -44,7 +44,7 @@ public class MchanhuaModClient implements ClientModInitializer {
 		config = MchanhuaConfig.load();
 		service = new TranslationService(config);
 
-		TooltipTranslator.init(config, service);
+		TextTranslator.init(config, service);
 		TranslationHud.register(config);
 		registerKeys();
 

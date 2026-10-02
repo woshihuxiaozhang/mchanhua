@@ -1,6 +1,6 @@
 package com.mchanhua.client.mixin;
 
-import com.mchanhua.client.tooltip.TooltipTranslator;
+import com.mchanhua.client.translate.TextTranslator;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
@@ -31,7 +31,7 @@ public class ItemStackTooltipMixin {
 		if (lines == null || lines.isEmpty()) {
 			return;
 		}
-		List<Component> translated = TooltipTranslator.translate(lines);
+		List<Component> translated = TextTranslator.translateLines(lines, TextTranslator.tooltipsEnabled());
 		if (translated != lines) {
 			cir.setReturnValue(translated);
 		}
