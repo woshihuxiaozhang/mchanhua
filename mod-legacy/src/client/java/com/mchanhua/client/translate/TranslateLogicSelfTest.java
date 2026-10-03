@@ -39,7 +39,7 @@ public final class TranslateLogicSelfTest {
 		translationGoesBackToTheRightLine();
 		signLinesOnlyTranslateTheTextOnes();
 		bookPageKeepsItsLineBreaks();
-		mismatchedCacheEntryIsIgnored();
+		multilineTranslationInOneEntryIsFlattened();
 
 		System.out.println();
 		System.out.println("[translate-logic] 通过 " + passed + "，失败 " + failed);
@@ -373,25 +373,24 @@ public final class TranslateLogicSelfTest {
 	}
 
 	/**
-	 * 历史坏缓存：早先把整段多行文本当成一行翻过，模型只回了一行、还被缓存了下来。
-	 * 现在"译文行数和请求对不上"必须当没命中，否则会一直显示残缺结果（用户实测遇到的）。
+	 * 模型有时把几行译文塞回一个含换行的字符串（请求 4 条、回来 1 条但含 3 个换行）。
+	 * 必须先摊平再按行放回，否则只有第一行被替换、其余像"翻译丢了"（用户实测）。
 	 */
-	private static void mismatchedCacheEntryIsIgnored() {
-		MchanhuaConfig config = new MchanhuaConfig();
-		config.apiKey = "sk-selftest";
-		LineTranslator halfBaked = (cfg, lines) -> List.of(lines.get(0));
-		TranslationService service = new TranslationService(config, halfBaked, false);
+	private static void multilineTranslationInOneEntryIsFlattened() {
+		List<String> rules = List.of("--- RULES ---", "1. Play on adventure mode",
+				"2. Do not switch to peaceful mode", "3. Stick together");
+		List<Integer> indices = TextLines.indicesToTranslate(rules);
+		check(indices.size() == 4, "四行都要翻，实际 " + indices);
 
-		CountDownLatch latch = new CountDownLatch(1);
-		service.request(List.of("line one", "line two"), done -> latch.countDown());
-		check(await(latch), "先把坏结果写进缓存");
-		check(service.cached(List.of("line one", "line two")) == null,
-				"行数对不上的缓存必须当没命中（返回 null）");
+		List<String> merged = TextLines.applyTranslations(rules, indices,
+				List.of("--- 规则 ---\n1. 用冒险模式游玩\n2. 不要切到和平模式\n3. 全程待在一起"));
+		check(merged.equals(List.of("--- 规则 ---", "1. 用冒险模式游玩",
+						"2. 不要切到和平模式", "3. 全程待在一起")),
+				"含换行的单条译文要摊平后按行放回，实际 " + merged);
 
-		CountDownLatch good = new CountDownLatch(1);
-		service.request(List.of("solo"), done -> good.countDown());
-		check(await(good), "再写一条行数正常的");
-		check(service.cached(List.of("solo")) != null, "行数一致时缓存照常用");
+		check(TextLines.applyTranslations(rules, indices, List.of("A", "B", "C", "D"))
+						.equals(List.of("A", "B", "C", "D")),
+				"一行对一条时照常替换");
 	}
 
 	private static List<String> translateAll(List<String> lines) {

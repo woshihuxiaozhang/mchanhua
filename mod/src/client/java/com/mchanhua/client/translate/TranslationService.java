@@ -73,18 +73,11 @@ public final class TranslationService {
 
 	/** 缓存里有就直接返回，没有返回 null（渲染线程用）。 */
 	public List<String> cached(List<String> lines) {
-		List<String> hit = cache.get(key(lines));
-		if (hit == null) {
-			return null;
-		}
-		// 行数对不上 = 历史遗留的坏缓存（早先把整段多行文本当成一行翻过，
-		// 模型只回了一行、还被存了下来）。这种必须丢弃重翻，否则会一直显示残缺结果。
-		if (hit.size() != lines.size()) {
-			MchanhuaMod.LOGGER.info("缓存行数对不上（{} vs {}），丢弃重翻：{}",
-					hit.size(), lines.size(), lines);
-			return null;
-		}
-		return hit;
+		// 注意：这里**不能**按"条数必须相等"来判定——
+		// 模型经常把多行译文塞回一个含换行的字符串（1 条 vs 请求 4 条），
+		// 那是正确结果，硬判会把好结果丢掉、每帧重翻（用户日志里刷屏过）。
+		// 真正对齐的工作交给 TextLines.applyTranslations（它会先摊平再按行放回）。
+		return cache.get(key(lines));
 	}
 
 	/**

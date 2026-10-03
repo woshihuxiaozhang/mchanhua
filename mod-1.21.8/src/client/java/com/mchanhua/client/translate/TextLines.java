@@ -75,8 +75,9 @@ public final class TextLines {
 		if (indices == null || translated == null) {
 			return result;
 		}
-		for (int k = 0; k < indices.size() && k < translated.size(); k++) {
-			String text = translated.get(k);
+		List<String> values = flatten(translated, indices.size());
+		for (int k = 0; k < indices.size() && k < values.size(); k++) {
+			String text = values.get(k);
 			if (text == null || text.isBlank()) {
 				continue;
 			}
@@ -86,5 +87,23 @@ public final class TextLines {
 			}
 		}
 		return result;
+	}
+
+	/** 模型有时把一个含换行的字符串当成多行译文回（先摊平再按行放回）。 */
+	private static List<String> flatten(List<String> translated, int expected) {
+		if (translated.size() == expected) {
+			return translated;
+		}
+		List<String> flat = new ArrayList<>();
+		for (String value : translated) {
+			if (value == null) {
+				flat.add(null);
+				continue;
+			}
+			for (String piece : value.split("\n", -1)) {
+				flat.add(piece);
+			}
+		}
+		return flat.size() == expected ? flat : translated;
 	}
 }

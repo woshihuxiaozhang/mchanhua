@@ -75,8 +75,9 @@ public final class TextLines {
 		if (indices == null || translated == null) {
 			return result;
 		}
-		for (int k = 0; k < indices.size() && k < translated.size(); k++) {
-			String text = translated.get(k);
+		List<String> values = flatten(translated, indices.size());
+		for (int k = 0; k < indices.size() && k < values.size(); k++) {
+			String text = values.get(k);
 			if (text == null || text.isBlank()) {
 				continue;
 			}
@@ -86,5 +87,28 @@ public final class TextLines {
 			}
 		}
 		return result;
+	}
+
+	/**
+	 * 模型有时不按"一行一个条目"回，而是把几行译文塞回**一个含换行的字符串**里
+	 * （用户实测：请求 4 条、回来 1 条但里面有 3 个换行）。
+	 * 这种情况先摊平再按行放回，否则只有第一行会被替换、屏幕上像"翻译丢了"。
+	 * 摊平后条数仍然对不上就原样返回，让调用方按现有的条数处理（保留原文）。
+	 */
+	private static List<String> flatten(List<String> translated, int expected) {
+		if (translated.size() == expected) {
+			return translated;
+		}
+		List<String> flat = new ArrayList<>();
+		for (String value : translated) {
+			if (value == null) {
+				flat.add(null);
+				continue;
+			}
+			for (String piece : value.split("\n", -1)) {
+				flat.add(piece);
+			}
+		}
+		return flat.size() == expected ? flat : translated;
 	}
 }
