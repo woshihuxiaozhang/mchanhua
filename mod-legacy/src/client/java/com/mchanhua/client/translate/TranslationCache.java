@@ -10,7 +10,6 @@ import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,10 +21,13 @@ import java.util.Map;
  */
 public final class TranslationCache {
 	private static final int MAX_ENTRIES = 2000;
-	private static final Type TYPE = new TypeToken<LinkedHashMap<String, String>>() { }.getType();
+	// 值直接存**列表**，不再用 \n 拼成字符串：
+	// 译文本身就可能含换行，拼起来再拆会把"1 条含换行的译文"误判成"多条"，
+	// 之前那个"行数对不上"的守卫就是被这个坑住了（每帧重翻、日志刷屏）。
+	private static final Type TYPE = new TypeToken<LinkedHashMap<String, List<String>>>() { }.getType();
 	private static final Gson GSON = new Gson();
 
-	private final Map<String, String> entries = new LinkedHashMap<>(64, 0.75f, true);
+	private final Map<String, List<String>> entries = new LinkedHashMap<>(64, 0.75f, true);
 	private boolean dirty = false;
 
 	private static Path file() {
@@ -38,30 +40,25 @@ public final class TranslationCache {
 			return;
 		}
 		try {
-			Map<String, String> loaded = GSON.fromJson(Files.readString(path, StandardCharsets.UTF_8), TYPE);
+			Map<String, List<String>> loaded =
+					GSON.fromJson(Files.readString(path, StandardCharsets.UTF_8), TYPE);
 			if (loaded != null) {
 				entries.putAll(loaded);
 			}
 			MchanhuaMod.LOGGER.info("译文缓存已载入：{} 条", entries.size());
 		} catch (Exception e) {
+			// 旧格式（值是字符串）会在这里解析失败：直接当空缓存用，
+			// 反正旧条目里有"整段当一行翻"留下的残缺结果，重翻一遍更干净。
 			MchanhuaMod.LOGGER.warn("读取译文缓存失败：{}", e.toString());
 		}
 	}
 
 	public List<String> get(String key) {
-		String value = entries.get(key);
-		if (value == null) {
-			return null;
-		}
-		List<String> lines = new ArrayList<>();
-		for (String line : value.split("\n", -1)) {
-			lines.add(line);
-		}
-		return lines;
+		return entries.get(key);
 	}
 
 	public void put(String key, List<String> lines) {
-		entries.put(key, String.join("\n", lines));
+		entries.put(key, List.copyOf(lines));
 		dirty = true;
 		while (entries.size() > MAX_ENTRIES) {
 			String oldest = entries.keySet().iterator().next();
