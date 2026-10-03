@@ -41,7 +41,9 @@ public final class TranslationCache {
 			Map<String, List<String>> loaded =
 					GSON.fromJson(Files.readString(path, StandardCharsets.UTF_8), TYPE);
 			if (loaded != null) {
-				entries.putAll(loaded);
+				synchronized (entries) {
+					entries.putAll(loaded);
+				}
 			}
 			MchanhuaMod.LOGGER.info("译文缓存已载入：{} 条", entries.size());
 		} catch (Exception e) {
@@ -51,15 +53,20 @@ public final class TranslationCache {
 	}
 
 	public List<String> get(String key) {
-		return entries.get(key);
+		// LRU Map 取值会改动顺序，写盘在后台线程，两者相撞就是 ConcurrentModificationException
+		synchronized (entries) {
+			return entries.get(key);
+		}
 	}
 
 	public void put(String key, List<String> lines) {
-		entries.put(key, List.copyOf(lines));
-		dirty = true;
-		while (entries.size() > MAX_ENTRIES) {
-			String oldest = entries.keySet().iterator().next();
-			entries.remove(oldest);
+		synchronized (entries) {
+			entries.put(key, List.copyOf(lines));
+			dirty = true;
+			while (entries.size() > MAX_ENTRIES) {
+				String oldest = entries.keySet().iterator().next();
+				entries.remove(oldest);
+			}
 		}
 	}
 
@@ -69,10 +76,14 @@ public final class TranslationCache {
 			return;
 		}
 		dirty = false;
+		Map<String, List<String>> snapshot;
+		synchronized (entries) {
+			snapshot = new LinkedHashMap<>(entries);
+		}
 		Path path = file();
 		try {
 			Files.createDirectories(path.getParent());
-			Files.writeString(path, GSON.toJson(entries), StandardCharsets.UTF_8);
+			Files.writeString(path, GSON.toJson(snapshot), StandardCharsets.UTF_8);
 		} catch (Exception e) {
 			MchanhuaMod.LOGGER.warn("保存译文缓存失败：{}", e.toString());
 		}

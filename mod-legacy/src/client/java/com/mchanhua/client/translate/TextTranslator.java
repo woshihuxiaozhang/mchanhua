@@ -112,6 +112,11 @@ public final class TextTranslator {
 		if (line == null || !allowed) {
 			return line;
 		}
+		// 单组件也可能是一整屏多行文本（地图把规则塞进一个悬浮大字/名牌就是这种），
+		// 这种必须按行拆开翻再拼回，否则模型会把中间几行合并、屏幕上只剩一行。
+		if (line.getString().indexOf('\n') >= 0) {
+			return translateMultiline(line, true);
+		}
 		List<Text> translated = translateLines(List.of(line), true, mirrorToHud);
 		return translated.isEmpty() ? line : translated.get(0);
 	}
