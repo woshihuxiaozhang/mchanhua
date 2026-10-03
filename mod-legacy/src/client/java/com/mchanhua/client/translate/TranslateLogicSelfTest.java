@@ -39,6 +39,7 @@ public final class TranslateLogicSelfTest {
 		translationGoesBackToTheRightLine();
 		signLinesOnlyTranslateTheTextOnes();
 		bookPageKeepsItsLineBreaks();
+		mismatchedCacheEntryIsIgnored();
 
 		System.out.println();
 		System.out.println("[translate-logic] 通过 " + passed + "，失败 " + failed);
@@ -369,6 +370,28 @@ public final class TranslateLogicSelfTest {
 		String chinese = "第一行\n\n第二行";
 		check(TextLines.indicesToTranslate(List.of(chinese.split("\n", -1))).isEmpty(),
 				"中文书页一行都不用翻");
+	}
+
+	/**
+	 * 历史坏缓存：早先把整段多行文本当成一行翻过，模型只回了一行、还被缓存了下来。
+	 * 现在"译文行数和请求对不上"必须当没命中，否则会一直显示残缺结果（用户实测遇到的）。
+	 */
+	private static void mismatchedCacheEntryIsIgnored() {
+		MchanhuaConfig config = new MchanhuaConfig();
+		config.apiKey = "sk-selftest";
+		LineTranslator halfBaked = (cfg, lines) -> List.of(lines.get(0));
+		TranslationService service = new TranslationService(config, halfBaked, false);
+
+		CountDownLatch latch = new CountDownLatch(1);
+		service.request(List.of("line one", "line two"), done -> latch.countDown());
+		check(await(latch), "先把坏结果写进缓存");
+		check(service.cached(List.of("line one", "line two")) == null,
+				"行数对不上的缓存必须当没命中（返回 null）");
+
+		CountDownLatch good = new CountDownLatch(1);
+		service.request(List.of("solo"), done -> good.countDown());
+		check(await(good), "再写一条行数正常的");
+		check(service.cached(List.of("solo")) != null, "行数一致时缓存照常用");
 	}
 
 	private static List<String> translateAll(List<String> lines) {
