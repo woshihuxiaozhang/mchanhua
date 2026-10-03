@@ -198,7 +198,7 @@ tools/make_icons.py  生成界面按钮用的线性图标
 支持 **1.20.1 / 1.21.1 / 1.21.8 / 26.1.2** 四个版本（四份独立工程，各自适配、各自实测）。
 代码、安装说明和 jar 都已搬到那边：
 
-- GitHub：<https://github.com/woshihuxiaozhang/mchanhua-mod>
+- GitHub：<https://github.com/woshihuxiaozhang/mchanhua-Minecraft>
 - 本机：`D:\mchanhua-mod`
 
 桌面版和模组版的目标是一样的——**把游戏里的英文/日文变成中文给你看懂**——只是取文字的路径不同：

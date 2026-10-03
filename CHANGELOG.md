@@ -3,7 +3,7 @@
 ## 2026-10 · 仓库拆分：模组版独立成库
 
 Minecraft 模组版（1.20.1 / 1.21.1 / 1.21.8 / 26.1.2 四个独立工程）从本仓库拆到
-[mchanhua-mod](https://github.com/woshihuxiaozhang/mchanhua-mod)：
+[mchanhua-Minecraft](https://github.com/woshihuxiaozhang/mchanhua-Minecraft)：
 
 - 两边受众和发版节奏不一样：模组走 `mod-v0.1.x`，桌面版走 `vN.N.N`，拆开后各自打 tag、各自发 Release，互不牵连
 - 本仓库从此只装桌面版：`mod/`、`mod-legacy/`、`mod-1.20.1/`、`mod-1.21.8/` 四个目录已删除，
