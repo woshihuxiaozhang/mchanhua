@@ -40,7 +40,7 @@ public final class ConfigDraftSelfTest {
 
 	private static void roundTripKeepsValues() {
 		MchanhuaConfig source = new MchanhuaConfig();
-		source.apiKey = "sk-abcdefghijklmnop";
+		source.apiKey = "test-key-0123456789";
 		source.baseUrl = "https://api.moonshot.cn/v1";
 		source.model = "kimi-k2";
 		source.targetLanguage = "繁體中文";
@@ -58,7 +58,7 @@ public final class ConfigDraftSelfTest {
 		List<String> notes = ConfigDraft.from(source).applyTo(target);
 
 		check(notes.isEmpty(), "完整配置往返不该有兜底提示：" + notes);
-		check("sk-abcdefghijklmnop".equals(target.apiKey), "apiKey 要一致");
+		check("test-key-0123456789".equals(target.apiKey), "apiKey 要一致");
 		check("https://api.moonshot.cn/v1".equals(target.baseUrl), "baseUrl 要一致");
 		check("kimi-k2".equals(target.model), "model 要一致");
 		check("繁體中文".equals(target.targetLanguage), "targetLanguage 要一致");
@@ -74,7 +74,7 @@ public final class ConfigDraftSelfTest {
 	private static void blankStringsFallBackToDefaults() {
 		MchanhuaConfig target = new MchanhuaConfig();
 		ConfigDraft draft = new ConfigDraft();
-		draft.apiKey = "sk-abcdefghijklmnop";
+		draft.apiKey = "test-key-0123456789";
 		draft.baseUrl = "   ";
 		draft.model = "";
 		draft.targetLanguage = "  ";
@@ -90,7 +90,7 @@ public final class ConfigDraftSelfTest {
 	private static void badNumbersFallBackWithNote() {
 		MchanhuaConfig target = new MchanhuaConfig();
 		ConfigDraft draft = new ConfigDraft();
-		draft.apiKey = "sk-abcdefghijklmnop";
+		draft.apiKey = "test-key-0123456789";
 		draft.autoHideSeconds = "abc";
 		draft.timeoutSeconds = "三十";
 		List<String> notes = draft.applyTo(target);
@@ -104,7 +104,7 @@ public final class ConfigDraftSelfTest {
 	private static void numbersAreClampedWithNote() {
 		MchanhuaConfig target = new MchanhuaConfig();
 		ConfigDraft draft = new ConfigDraft();
-		draft.apiKey = "sk-abcdefghijklmnop";
+		draft.apiKey = "test-key-0123456789";
 		draft.autoHideSeconds = "-5";
 		draft.timeoutSeconds = "9999";
 		List<String> notes = draft.applyTo(target);
@@ -119,7 +119,7 @@ public final class ConfigDraftSelfTest {
 	private static void emptyNumbersSilentlyUseDefault() {
 		MchanhuaConfig target = new MchanhuaConfig();
 		ConfigDraft draft = new ConfigDraft();
-		draft.apiKey = "sk-abcdefghijklmnop";
+		draft.apiKey = "test-key-0123456789";
 		draft.autoHideSeconds = "  ";
 		draft.timeoutSeconds = "";
 		List<String> notes = draft.applyTo(target);
@@ -132,9 +132,9 @@ public final class ConfigDraftSelfTest {
 	private static void apiKeyIsTrimmed() {
 		MchanhuaConfig target = new MchanhuaConfig();
 		ConfigDraft draft = new ConfigDraft();
-		draft.apiKey = "  sk-abcdefghijklmnop  \n";
+		draft.apiKey = "  test-key-0123456789  \n";
 		draft.applyTo(target);
-		check("sk-abcdefghijklmnop".equals(target.apiKey),
+		check("test-key-0123456789".equals(target.apiKey),
 				"从网页复制来的 key 常带空格/换行，要自动去掉：" + target.apiKey);
 	}
 
@@ -143,10 +143,10 @@ public final class ConfigDraftSelfTest {
 		check("（还没填）".equals(ConfigDraft.maskKey("   ")), "空白显示未填");
 		check("••••".equals(ConfigDraft.maskKey("abcd")), "太短的 key 全打点");
 		check("••••••••".equals(ConfigDraft.maskKey("abcdefgh")), "8 位全打点");
-		String masked = ConfigDraft.maskKey("sk-abcdefghijklmnop");
-		check(masked.startsWith("sk-ab") && masked.endsWith("mnop"), "露头露尾：" + masked);
+		String masked = ConfigDraft.maskKey("test-key-0123456789");
+		check(masked.startsWith("test-") && masked.endsWith("6789"), "露头露尾：" + masked);
 		check(masked.contains("…"), "中间要省略：" + masked);
-		check(!masked.contains("cdefghijkl"), "中间不能泄漏：" + masked);
+		check(!masked.contains("key-012345"), "中间不能泄漏：" + masked);
 	}
 
 	private static void missingKeyIsReported() {

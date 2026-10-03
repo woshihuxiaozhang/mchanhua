@@ -27,5 +27,5 @@
 
 ```bash
 .\gradlew.bat build        # 构建 + 自测
-.\gradlew.bat runClient    # 进游戏（需要 JDK 17：D:\Tools\jdk-17）
+.\gradlew.bat runClient    # 进游戏（需要 JDK 17）
 ```

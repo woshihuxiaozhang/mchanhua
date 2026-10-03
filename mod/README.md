@@ -82,7 +82,7 @@
 | 加载器 | Fabric Loader **0.19.5** |
 | 依赖 | Fabric API **0.155.3+26.1.2** |
 | Loom | 1.18-SNAPSHOT |
-| Java | **25**（MC 26.x 要求；本机用的是 `D:\Tools\jdk-25`） |
+| Java | **25**（MC 26.x 要求） |
 | 映射 | 官方映射（Yarn 在 26.x 已不再发布，官方模板也已去掉 `mappings` 声明） |
 | 渲染 | 26.x 的绘制入口已改名：`GuiGraphics` → `GuiGraphicsExtractor`；HUD 用 Fabric 的 `HudElementRegistry` |
 
@@ -98,7 +98,7 @@ cd mod
 ```
 
 第一次构建会下载 Gradle、Minecraft 与依赖，需要几分钟。要求 JDK 25 作为 Gradle 的 JVM
-（本机已在 `%USERPROFILE%\.gradle\gradle.properties` 里指向 `D:\Tools\jdk-25`）。
+（Gradle 工具链指向本机装的 JDK 25 即可，路径按你自己的来）。
 
 ## 实现要点（26.x 踩过的坑）
 
