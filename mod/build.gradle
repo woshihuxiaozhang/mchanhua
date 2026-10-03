@@ -56,8 +56,8 @@ java {
 	targetCompatibility = JavaVersion.VERSION_25
 }
 
-// 多版本之后 jar 名字要能一眼看出是给哪个游戏版本的：
-// mchanhua-26.1.2-0.1.0.jar / mchanhua-1.21.1-0.1.0.jar …
+// jar 名字带上游戏版本，免得和别的版本线的产物混在一起：
+// mchanhua-26.1.2-0.1.0.jar
 base {
 	archivesName = "mchanhua-${project.minecraft_version}"
 }

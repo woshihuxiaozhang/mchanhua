@@ -4,28 +4,9 @@ pluginManagement {
 			name = 'Fabric'
 			url = 'https://maven.fabricmc.net/'
 		}
-		maven {
-			name = 'Kikugie'
-			url = 'https://maven.kikugie.dev/releases'
-		}
 		mavenCentral()
 		gradlePluginPortal()
 	}
-}
-
-// 多版本：Stonecutter 负责"一份源码 + 每个版本一个节点"
-// 用法：.\gradlew.bat :26.1.2:build / :26.1.2:runClient；不带前缀时走 vcsVersion
-plugins {
-	id 'dev.kikugie.stonecutter' version '0.9.8'
-}
-
-stonecutter {
-	shared {
-		// 加新版本就在这里加一行，例如：versions '26.1.2', '1.21.1', '1.20.1'
-		versions '26.1.2'
-		vcsVersion = '26.1.2'
-	}
-	create(rootProject)
 }
 
 // 与 mod id 保持一致

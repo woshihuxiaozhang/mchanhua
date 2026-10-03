@@ -143,6 +143,12 @@ public final class TextTranslator {
 			ReplayGuard.run(line, replay);
 			return;
 		}
+		// 多行文本（地图常把一整屏规则塞进一个 title）必须**按行**翻：
+		// 整块发过去模型会把中间几行合并/吃掉（用户报过"翻译后只剩首尾两行"）。
+		if (line.getString().indexOf('\n') >= 0) {
+			requestMultilineLater(line, replay);
+			return;
+		}
 		Text ready = readyOrNull(line, true);
 		if (ready != null) {
 			ReplayGuard.run(ready, replay);
@@ -157,6 +163,39 @@ public final class TextTranslator {
 				ReplayGuard.run(result, replay);
 			});
 		});
+	}
+
+	/**
+	 * 多行文本的"翻好再显示"：按 {@code \n} 拆行 → 逐行翻 → 按原行数拼回去。
+	 * 行数、分段都不会变，模型少给哪行就保留哪行的原文。
+	 */
+	private static void requestMultilineLater(Text text, Consumer<Text> replay) {
+		String raw = text.getString();
+		List<String> rawLines = List.of(raw.split("\n", -1));
+		List<Integer> indices = TextLines.indicesToTranslate(rawLines);
+		if (indices.isEmpty()) {
+			ReplayGuard.run(text, replay);
+			return;
+		}
+		List<String> picked = TextLines.pick(rawLines, indices);
+		List<String> cached = service.cached(picked);
+		if (cached != null) {
+			ReplayGuard.run(rebuildMultiline(text, rawLines, indices, cached), replay);
+			return;
+		}
+		service.request(picked, translated -> {
+			Text result = rebuildMultiline(text, rawLines, indices, translated);
+			MinecraftClient.getInstance().execute(() -> {
+				com.mchanhua.client.hud.TranslationHud.setLast(picked, translated);
+				ReplayGuard.run(result, replay);
+			});
+		});
+	}
+
+	private static Text rebuildMultiline(Text original, List<String> rawLines,
+			List<Integer> indices, List<String> translated) {
+		List<String> merged = TextLines.applyTranslations(rawLines, indices, translated);
+		return Text.literal(String.join("\n", merged)).setStyle(original.getStyle());
 	}
 
 	/**
